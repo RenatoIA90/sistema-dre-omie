@@ -12,7 +12,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from core import analise, apresentacao, db, dre, excel
+from core import analise, apresentacao, db, dre, excel, modelos
 from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
@@ -164,6 +164,8 @@ def tela_empresas():
         except OmieErro as e:
             st.error(str(e))
 
+    secao_modelo_dre(emp)
+
     st.subheader("Configuração do relatório")
     c1, c2 = st.columns(2)
     modos = {"conta": "Por conta corrente (ex.: MS Festas)", "projeto": "Por projeto / centro de custo (ex.: Hagili)",
@@ -225,6 +227,71 @@ def tela_empresas():
             st.rerun()
 
 
+def todos_modelos():
+    return {**{f"{n} (pronto)": m for n, m in modelos.MODELOS_PRONTOS.items()},
+            **{f"{n} (importado)": m for n, m in db.listar_modelos().items()}}
+
+
+def aplicar_modelo(emp, nome, modelo):
+    cfg = emp["config"]
+    cfg["grupos"] = modelos.completar_grupos(modelo["grupos"])
+    cfg["contas_modelo"] = [list(c) for c in modelo["contas"]]
+    cfg["modelo_dre"] = nome
+    mapa = emp["mapa"]
+    dre.reclassificar(mapa, cfg)
+    db.salvar_config(emp["id"], cfg)
+    db.salvar_mapa(emp["id"], mapa)
+    st.session_state.pop(f"modelo_sel_{emp['id']}", None)
+
+
+def secao_modelo_dre(emp):
+    st.subheader("Modelo de DRE")
+    cfg = emp["config"]
+    st.caption(f"Modelo em uso: **{cfg.get('modelo_dre') or 'Serviços (padrão Savian) (pronto)'}**. "
+               "O modelo define os grupos da DRE e ajuda a classificar as categorias do OMIE. "
+               "Classificações que você já revisou continuam valendo se o grupo existir no novo modelo.")
+    opcoes = todos_modelos()
+    c1, c2, c3 = st.columns([3, 1.3, 1.3], vertical_alignment="bottom")
+    nomes = list(opcoes)
+    atual = cfg.get("modelo_dre")
+    escolha = c1.selectbox("Modelos disponíveis", nomes, index=nomes.index(atual) if atual in nomes else 0,
+                           key=f"modelo_sel_{emp['id']}")
+    if c2.button("Aplicar à empresa", key=f"modelo_apl_{emp['id']}", width="stretch"):
+        aplicar_modelo(emp, escolha, opcoes[escolha])
+        st.rerun()
+    buf = io.BytesIO()
+    m = opcoes[escolha]
+    modelos.exportar_excel_modelo(buf, escolha, modelos.completar_grupos(m["grupos"]), m["contas"])
+    c3.download_button("Baixar em Excel", buf.getvalue(), file_name=f"MODELO DRE - {escolha}.xlsx",
+                       mime=MIME_XLSX, key=f"modelo_xls_{emp['id']}", width="stretch")
+
+    with st.expander("📥 Importar um DRE de exemplo em Excel e criar um modelo novo"):
+        st.caption("Envie um report de fechamento (como o da Hagili ou o que o sistema gera) ou o modelo baixado "
+                   "acima depois de editado. O sistema lê as linhas no formato “040100-NOME DO GRUPO” (grupos) e "
+                   "“040101-Nome da conta” (contas) e os títulos das seções, como “(-) CUSTOS OPERACIONAIS”.")
+        arq = st.file_uploader("Excel do DRE de exemplo", type=["xlsx", "xlsm"], key=f"modelo_up_{emp['id']}")
+        if arq:
+            try:
+                grupos, contas = modelos.ler_excel_modelo(arq)
+            except Exception as e:  # arquivo fora do formato ou corrompido
+                st.error(f"Não consegui ler esse Excel: {e}")
+                return
+            st.success(f"Encontrei {len(grupos)} grupos e {len(contas)} contas.")
+            prev = pd.DataFrame(grupos, columns=["Código", "Grupo", "Seção", "Relatório"])
+            prev["Contas"] = [", ".join(n for n, g in contas if g == cod) for cod in prev["Código"]]
+            st.dataframe(prev, hide_index=True, width="stretch", height=min(40 + 35 * len(prev), 500))
+            nome = st.text_input("Nome do modelo", value=os.path.splitext(arq.name)[0][:60],
+                                 key=f"modelo_nome_{emp['id']}")
+            if st.button("💾 Salvar modelo e aplicar a esta empresa", type="primary", key=f"modelo_salvar_{emp['id']}"):
+                if not nome.strip():
+                    st.error("Dê um nome ao modelo.")
+                    return
+                db.salvar_modelo(nome.strip(), grupos, contas)
+                aplicar_modelo(emp, f"{nome.strip()} (importado)", {"grupos": grupos, "contas": contas})
+                st.success("Modelo salvo. Ele também fica disponível para as outras empresas.")
+                st.rerun()
+
+
 # =====================================================================
 # PLANO DA DRE
 # =====================================================================
@@ -252,7 +319,7 @@ def tela_plano():
         db.salvar_config(emp["id"], cfg)
         st.success("Plano salvo.")
     if c2.button("↩️ Voltar ao plano padrão"):
-        cfg["grupos"] = None
+        cfg.update({"grupos": None, "contas_modelo": [], "modelo_dre": None})
         db.salvar_config(emp["id"], cfg)
         st.rerun()
 
@@ -350,7 +417,7 @@ def tela_report():
 
     cfg = copy.deepcopy(emp["config"])
     mapa = emp["mapa"]
-    novas = dre.completar_mapeamento(mapa, dados["lancs"])
+    novas = dre.completar_mapeamento(mapa, dados["lancs"], cfg)
     if novas:
         db.salvar_mapa(emp["id"], mapa)
     cfg["rateios_mes"] = cfg.get("rateios", {}).get(f"{ano}-{mes:02d}", [])

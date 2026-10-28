@@ -35,6 +35,8 @@ def _con():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         empresa_id INTEGER NOT NULL, ano INTEGER NOT NULL, mes INTEGER NOT NULL,
         gerado_em TEXT NOT NULL, gerado_por TEXT, xlsx TEXT, pptx TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS modelos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL UNIQUE, grupos TEXT NOT NULL, contas TEXT NOT NULL)""")
     return c
 
 
@@ -97,3 +99,22 @@ def listar_geracoes(limite=15):
         return [dict(r) for r in c.execute(
             """SELECT g.*, e.nome AS empresa FROM geracoes g JOIN empresas e ON e.id = g.empresa_id
                WHERE e.ativo=1 ORDER BY g.gerado_em DESC, g.id DESC LIMIT ?""", (limite,))]
+
+
+def salvar_modelo(nome, grupos, contas):
+    """Modelo de DRE importado de um Excel; um nome já existente é substituído."""
+    with _con() as c:
+        c.execute("INSERT INTO modelos (nome, grupos, contas) VALUES (?,?,?) "
+                  "ON CONFLICT(nome) DO UPDATE SET grupos=excluded.grupos, contas=excluded.contas",
+                  (nome, json.dumps(grupos, ensure_ascii=False), json.dumps(contas, ensure_ascii=False)))
+
+
+def listar_modelos():
+    with _con() as c:
+        return {r["nome"]: {"grupos": json.loads(r["grupos"]), "contas": json.loads(r["contas"])}
+                for r in c.execute("SELECT * FROM modelos ORDER BY nome")}
+
+
+def excluir_modelo(nome):
+    with _con() as c:
+        c.execute("DELETE FROM modelos WHERE nome=?", (nome,))
