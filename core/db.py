@@ -2,6 +2,7 @@
 import json
 import os
 import sqlite3
+from datetime import datetime
 
 PASTA_DADOS = os.environ.get("SAVIAN_DADOS", os.path.join(os.path.dirname(os.path.dirname(__file__)), "dados"))
 os.makedirs(PASTA_DADOS, exist_ok=True)
@@ -30,6 +31,10 @@ def _con():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nome TEXT NOT NULL, cnpj TEXT, app_key TEXT, app_secret TEXT,
         config TEXT DEFAULT '{}', mapa TEXT DEFAULT '{}', ativo INTEGER DEFAULT 1)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS geracoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        empresa_id INTEGER NOT NULL, ano INTEGER NOT NULL, mes INTEGER NOT NULL,
+        gerado_em TEXT NOT NULL, gerado_por TEXT, xlsx TEXT, pptx TEXT)""")
     return c
 
 
@@ -77,3 +82,18 @@ def salvar_mapa(eid, mapa):
 def excluir(eid):
     with _con() as c:
         c.execute("UPDATE empresas SET ativo=0 WHERE id=?", (eid,))
+
+
+def registrar_geracao(empresa_id, ano, mes, gerado_por, xlsx, pptx):
+    """Guarda a última geração de cada empresa/competência (substitui a anterior)."""
+    with _con() as c:
+        c.execute("DELETE FROM geracoes WHERE empresa_id=? AND ano=? AND mes=?", (empresa_id, ano, mes))
+        c.execute("INSERT INTO geracoes (empresa_id, ano, mes, gerado_em, gerado_por, xlsx, pptx) VALUES (?,?,?,?,?,?,?)",
+                  (empresa_id, ano, mes, datetime.now().strftime("%Y-%m-%d %H:%M"), gerado_por, xlsx, pptx))
+
+
+def listar_geracoes(limite=15):
+    with _con() as c:
+        return [dict(r) for r in c.execute(
+            """SELECT g.*, e.nome AS empresa FROM geracoes g JOIN empresas e ON e.id = g.empresa_id
+               WHERE e.ativo=1 ORDER BY g.gerado_em DESC, g.id DESC LIMIT ?""", (limite,))]

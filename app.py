@@ -3,6 +3,8 @@
 Rodar:  streamlit run app.py
 """
 import copy
+import getpass
+import html
 import io
 import os
 from datetime import date
@@ -15,23 +17,87 @@ from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
 
-st.set_page_config(page_title="Savian | Fechamento DRE", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Savian | Reports BPO", page_icon="📊", layout="wide")
 ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 MESES = analise.MESES
 SECOES_OPC = [s for s, _ in SECOES] + ["FORA"]
 REL_OPC = ["", "recebimentos", "fornecedores", "funcionarios", "transferencias"]
+MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MIME_PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-st.markdown("""
+AZUL = "#213A6B"
+st.markdown(f"""
 <style>
- .block-container {padding-top: 1.5rem;}
- h1, h2, h3 {color: #0B2A7A;}
- div[data-testid="stMetricValue"] {font-size: 1.3rem;}
+ .stApp {{background: #F5F6F8;}}
+ header[data-testid="stHeader"] {{background: transparent;}}
+ .block-container {{padding-top: 1rem; max-width: 1400px;}}
+ h1, h2, h3 {{color: #1A1A1A;}}
+ div[data-testid="stMetricValue"] {{font-size: 1.3rem;}}
+
+ /* barra lateral azul, no visual do portal Savian */
+ section[data-testid="stSidebar"] {{background: {AZUL}; min-width: 240px !important; max-width: 240px !important;}}
+ section[data-testid="stSidebar"] * {{color: #FFFFFF;}}
+ section[data-testid="stSidebar"] hr {{border-color: rgba(255,255,255,.25); margin: .6rem 0 1rem;}}
+ .menu-secao {{font-size: .68rem; letter-spacing: .06em; opacity: .75; margin: .2rem 0 .3rem .1rem;}}
+ section[data-testid="stSidebar"] .stButton button {{
+   width: 100%; justify-content: flex-start; border: 0; border-radius: 4px; padding: .45rem .7rem;
+   background: transparent; font-weight: 500; box-shadow: none;}}
+ section[data-testid="stSidebar"] .stButton button > div {{justify-content: flex-start; width: 100%;}}
+ section[data-testid="stSidebar"] .stButton button:hover {{background: rgba(255,255,255,.08);}}
+ section[data-testid="stSidebar"] .stButton button[kind="primary"] {{background: rgba(255,255,255,.16);}}
+ .rodape-menu {{font-size: .72rem; opacity: .6; margin-top: 2rem;}}
+
+ /* cabeçalho da página e cartões brancos */
+ .topo {{display: flex; align-items: center; gap: .8rem; background: #FFFFFF; border-bottom: 1px solid #E3E6EA;
+   margin: -1rem -1rem 1.4rem; padding: .85rem 1.2rem; font-weight: 600; color: {AZUL}; font-size: 1.05rem;}}
+ .topo .usuario {{margin-left: auto; font-weight: 400; color: #6B7280; font-size: .9rem;}}
+ div[class*="st-key-cartao"] {{background: #FFFFFF; border: 0 !important; border-radius: 6px;
+   box-shadow: 0 1px 3px rgba(16,24,40,.08); padding: 1rem 1.1rem;}}
+ div[data-testid="stForm"] {{background: #FFFFFF; border: 0; border-radius: 6px;
+   box-shadow: 0 1px 3px rgba(16,24,40,.08);}}
+ .tabela-cab {{font-weight: 600; font-size: .9rem; border-bottom: 1px solid #E3E6EA; padding-bottom: .4rem;}}
+ .cinza {{color: #6B7280;}}
+ div[class*="st-key-linkbtn"] button {{background: transparent; border: 0; padding: 0; min-height: 0;
+   color: {AZUL}; text-decoration: underline; font-size: .85rem; box-shadow: none;}}
+ div[class*="st-key-linkbtn"] button:hover {{color: #0B2A7A; background: transparent;}}
+ div[class*="st-key-linkbtn"] button p {{font-size: .85rem;}}
 </style>""", unsafe_allow_html=True)
 
+PAGINAS = {"bpo": ("BPO Financeiro", ":material/apartment:"), "report": ("Report", ":material/bar_chart:")}
+st.session_state.setdefault("pagina", "report")
+
 with st.sidebar:
-    st.image(os.path.join(ASSETS, "logo_savian.png"), use_container_width=True)
-    pagina = st.radio("Menu", ["Fechamento do mês", "Empresas", "Plano da DRE"], label_visibility="collapsed")
-    st.caption("Report BPO Financeiro • dados locais em `dados/`")
+    st.image(os.path.join(ASSETS, "logo_savian_branco.png"), width=170)
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="menu-secao">BPO</div>', unsafe_allow_html=True)
+    for chave_pg, (rotulo, icone) in PAGINAS.items():
+        if st.button(rotulo, icon=icone, key=f"menu_{chave_pg}", width="stretch",
+                     type="primary" if st.session_state["pagina"] == chave_pg else "secondary"):
+            st.session_state["pagina"] = chave_pg
+            st.rerun()
+    st.markdown('<div class="rodape-menu">Savian Contabilidade</div>', unsafe_allow_html=True)
+
+
+def contas_conhecidas(emp):
+    """Contas correntes do OMIE guardadas no cadastro da empresa (atualizadas a cada consulta)."""
+    return emp["config"].get("contas_omie") or []
+
+
+def guardar_contas(emp, contas):
+    lista = [{"nCodCC": str(c["nCodCC"]), "descricao": html.unescape(str(c.get("descricao") or c["nCodCC"]))}
+             for c in contas if str(c.get("inativo", "N")).upper() != "S"]
+    if lista != contas_conhecidas(emp):
+        emp["config"]["contas_omie"] = lista
+        db.salvar_config(emp["id"], emp["config"])
+
+
+def ir_para(pagina):
+    st.session_state["pagina"] = pagina
+
+
+def topo(titulo):
+    st.markdown(f'<div class="topo">☰&nbsp; {titulo}<span class="usuario">{getpass.getuser()}</span></div>',
+                unsafe_allow_html=True)
 
 
 def opcoes_grupos(cfg):
@@ -45,15 +111,24 @@ def brl(v):
 # =====================================================================
 # EMPRESAS
 # =====================================================================
+def tela_bpo():
+    topo("BPO Financeiro")
+    st.subheader("Empresas BPO")
+    abas = st.tabs(["Cadastro de empresas", "Plano da DRE"])
+    with abas[0]:
+        tela_empresas()
+    with abas[1]:
+        tela_plano()
+
+
 def tela_empresas():
-    st.title("Empresas cadastradas")
     empresas = db.listar()
     nomes = ["➕ Nova empresa"] + [f"{e['nome']} (#{e['id']})" for e in empresas]
     escolha = st.selectbox("Selecione para editar", nomes)
     emp = None if escolha.startswith("➕") else empresas[nomes.index(escolha) - 1]
 
     with st.form("form_empresa"):
-        st.subheader("Dados e chaves da API OMIE")
+        st.markdown("**Dados e chaves da API OMIE**")
         c1, c2 = st.columns(2)
         nome = c1.text_input("Nome da empresa (aparece no relatório)", value=emp["nome"] if emp else "")
         cnpj = c2.text_area("CNPJ(s) — um por linha", value=emp["cnpj"] if emp else "", height=70)
@@ -85,7 +160,7 @@ def tela_empresas():
             if not emp["cnpj"] and dados_omie.get("cnpj"):
                 db.salvar(emp["nome"], dados_omie["cnpj"], emp["app_key"], emp["app_secret"], emp["id"])
                 st.info("CNPJ preenchido com o cadastro do OMIE.")
-            st.session_state[f"contas_{emp['id']}"] = contas
+            guardar_contas(emp, contas)
         except OmieErro as e:
             st.error(str(e))
 
@@ -100,10 +175,10 @@ def tela_empresas():
     rec_cli = c2.checkbox("Slide de recebimentos por cliente (em vez de por categoria)",
                           value=cfg.get("recebimentos_por_cliente", False))
 
-    contas = st.session_state.get(f"contas_{emp['id']}")
+    contas = contas_conhecidas(emp)
     if contas:
         st.markdown("**Contas correntes que entram no fechamento** (vazio = todas)")
-        opc = {str(c["nCodCC"]): f"{c.get('descricao')} ({c['nCodCC']})" for c in contas}
+        opc = {c["nCodCC"]: f"{c['descricao']} ({c['nCodCC']})" for c in contas}
         sel = st.multiselect("Contas", list(opc), default=[x for x in cfg.get("contas_ativas", []) if x in opc],
                              format_func=opc.get, label_visibility="collapsed")
     else:
@@ -120,7 +195,7 @@ def tela_empresas():
                        "Agrupamento (opcional)": cfg.get("grupos_colunas", {}).get(novo, ""),
                        "Ordem": (cfg.get("ordem_colunas") or []).index(novo) + 1 if novo in (cfg.get("ordem_colunas") or []) else None})
     df = pd.DataFrame(linhas or [{"Nome no OMIE": "", "Nome no relatório": "", "Agrupamento (opcional)": "", "Ordem": None}])
-    df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"ap_{emp['id']}_{modo}",
+    df = st.data_editor(df, num_rows="dynamic", width="stretch", key=f"ap_{emp['id']}_{modo}",
                         column_config={"Ordem": st.column_config.NumberColumn(min_value=1, step=1)})
     st.caption("Dica: os nomes do OMIE aparecem aqui depois do primeiro fechamento. Dois nomes do OMIE com o mesmo "
                "“Nome no relatório” viram uma coluna só (ex.: OGGI SORVETES + SO GELO → OGGI / SÓ GELO).")
@@ -154,18 +229,17 @@ def tela_empresas():
 # PLANO DA DRE
 # =====================================================================
 def tela_plano():
-    st.title("Plano da DRE (grupos)")
     empresas = db.listar()
     if not empresas:
         st.info("Cadastre uma empresa primeiro.")
         return
-    emp = st.selectbox("Empresa", empresas, format_func=lambda e: e["nome"])
+    emp = st.selectbox("Empresa", empresas, format_func=lambda e: e["nome"], key="plano_empresa")
     cfg = emp["config"]
     st.caption("Os grupos são o nível 2 da DRE (ex.: 040100-MÃO DE OBRA OPERACIONAL). As contas de nível 3 são as "
                "categorias do OMIE, classificadas na tela de fechamento. A coluna “Relatório” define em qual slide os "
                "pagamentos do grupo aparecem.")
     df = pd.DataFrame(dre.grupos_da_empresa(cfg), columns=["Código", "Nome", "Seção", "Relatório"])
-    df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"plano_{emp['id']}", column_config={
+    df = st.data_editor(df, num_rows="dynamic", width="stretch", key=f"plano_{emp['id']}", column_config={
         "Seção": st.column_config.SelectboxColumn(options=SECOES_OPC, required=True),
         "Relatório": st.column_config.SelectboxColumn(options=REL_OPC),
     })
@@ -202,41 +276,62 @@ def tela_plano():
 # =====================================================================
 # FECHAMENTO
 # =====================================================================
-def tela_fechamento():
-    st.title("Fechamento do mês")
+def tela_report():
+    topo("Reports BPO")
+    c1, c2 = st.columns([5, 1])
+    c1.subheader("Reports BPO")
+    c2.button("Empresas BPO", key="linkbtn_empresas", on_click=ir_para, args=("bpo",))
     empresas = db.listar()
     if not empresas:
-        st.info("Nenhuma empresa cadastrada. Vá em **Empresas** e cadastre a primeira (nome + App Key/App Secret do OMIE).")
+        st.info("Nenhuma empresa cadastrada. Vá em **BPO Financeiro** e cadastre a primeira "
+                "(nome, CNPJ, App Key e App Secret do OMIE).")
         return
     hoje = date.today()
-    pm = hoje.month - 1 or 12
-    pa = hoje.year if hoje.month > 1 else hoje.year - 1
-    c1, c2, c3, c4 = st.columns([3, 2, 1.2, 2])
-    emp = c1.selectbox("Empresa", empresas, format_func=lambda e: e["nome"])
-    mes = c2.selectbox("Mês", list(range(1, 13)), index=pm - 1, format_func=lambda m: MESES[m - 1])
-    ano = c3.number_input("Ano", 2015, 2100, pa)
-    fonte = c4.radio("Fonte", ["API OMIE", "Planilha exportada do OMIE"], horizontal=False)
+    st.session_state.setdefault("rep_mes", hoje.month - 1 or 12)
+    st.session_state.setdefault("rep_ano", hoje.year if hoje.month > 1 else hoje.year - 1)
+    ids = [e["id"] for e in empresas]
+    if st.session_state.get("rep_emp") not in ids:
+        st.session_state["rep_emp"] = ids[0]
+    por_id = {e["id"]: e for e in empresas}
 
-    arquivo = None
-    if fonte.startswith("Planilha"):
-        arquivo = st.file_uploader("Finanças › Movimentação da Conta Corrente › Exportar para Excel", type=["xlsx"])
+    with st.container(key="cartao_filtros"):
+        c1, c2, c3, c4, c5 = st.columns([4, 1.1, 1.1, 2, 1.8], vertical_alignment="bottom")
+        emp = por_id[c1.selectbox("Empresa", ids, format_func=lambda i: por_id[i]["nome"], key="rep_emp")]
+        mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda m: f"{m:02d}", key="rep_mes")
+        ano = c3.number_input("Ano", 2015, 2100, key="rep_ano")
+        fonte = c4.selectbox("Fonte", ["API OMIE", "Planilha exportada do OMIE"])
+        puxar = c5.button("Montar DRE", type="primary", width="stretch")
+        arquivo = None
+        sel = []
+        if fonte.startswith("Planilha"):
+            arquivo = st.file_uploader("Finanças › Movimentação da Conta Corrente › Exportar para Excel", type=["xlsx"])
+        else:
+            sel = seletor_contas(emp)
+    puxar = puxar or st.session_state.pop("rep_auto", False)
 
-    chave = f"dados_{emp['id']}_{ano}_{mes}"
-    if st.button("⬇️ Puxar dados e montar DRE", type="primary"):
+    chave = f"dados_{emp['id']}_{ano}_{mes}_{'-'.join(sorted(sel))}"
+    if puxar:
         try:
             if fonte == "API OMIE":
                 if not emp["app_key"] or not emp["app_secret"]:
                     st.error("Cadastre a App Key e o App Secret desta empresa.")
                     return
+                if contas_conhecidas(emp) and not sel:
+                    st.error("Selecione ao menos uma conta corrente para importar.")
+                    return
+                if contas_conhecidas(emp):
+                    todas = len(sel) == len(contas_conhecidas(emp))
+                    emp["config"]["contas_ativas"] = [] if todas else sel
+                    db.salvar_config(emp["id"], emp["config"])
                 log = []
                 barra = st.progress(0.0, "Conectando ao OMIE...")
                 cli = OmieCliente(emp["app_key"], emp["app_secret"], log=log)
-                r = baixar_mes(cli, int(ano), int(mes), emp["config"].get("contas_ativas"),
+                r = baixar_mes(cli, int(ano), int(mes), sel or None,
                                progresso=lambda p, t: barra.progress(p, t))
                 pasta = os.path.join(db.PASTA_DADOS, "logs")
                 os.makedirs(pasta, exist_ok=True)
                 salvar_log(log, os.path.join(pasta, f"omie_{emp['id']}_{ano}_{mes:02d}.json"))
-                st.session_state[f"contas_{emp['id']}"] = r["contas"]
+                guardar_contas(emp, r["contas"])
                 lancs, saldos = r["lancamentos"], r["saldos"]
             else:
                 if not arquivo:
@@ -250,7 +345,7 @@ def tela_fechamento():
 
     dados = st.session_state.get(chave)
     if not dados:
-        st.info("Escolha a empresa e o mês e clique em **Puxar dados**.")
+        ultimas_geracoes()
         return
 
     cfg = copy.deepcopy(emp["config"])
@@ -294,12 +389,70 @@ def tela_fechamento():
     with abas[2]:
         aba_saldos(chave, saldos)
     with abas[3]:
-        st.dataframe(dre_df(d), use_container_width=True, height=700, hide_index=True)
+        st.dataframe(dre_df(d), width="stretch", height=700, hide_index=True)
     with abas[4]:
         dfb = pd.DataFrame(base)
-        st.dataframe(dfb, use_container_width=True, height=600, hide_index=True)
+        st.dataframe(dfb, width="stretch", height=600, hide_index=True)
     with abas[5]:
         aba_arquivos(emp, cfg, base, d, saldos, int(ano), int(mes))
+    st.divider()
+    ultimas_geracoes()
+
+
+def seletor_contas(emp):
+    """Escolha das contas correntes a importar; a escolha fica salva para a empresa."""
+    contas = contas_conhecidas(emp)
+    if not contas:
+        c1, c2 = st.columns([4, 1.8], vertical_alignment="bottom")
+        c1.caption("Todas as contas correntes da empresa serão importadas. Para escolher quais, carregue a lista do OMIE.")
+        if c2.button("Carregar contas do OMIE", width="stretch"):
+            try:
+                with st.spinner("Consultando contas correntes..."):
+                    guardar_contas(emp, OmieCliente(emp["app_key"], emp["app_secret"]).contas_correntes())
+                st.rerun()
+            except OmieErro as e:
+                st.error(str(e))
+        return []
+    salvas = set(emp["config"].get("contas_ativas", [])) & {c["nCodCC"] for c in contas}
+    st.markdown("**Contas correntes a importar**")
+    cols = st.columns(6)
+    sel = []
+    for i, c in enumerate(contas):
+        if cols[i % len(cols)].checkbox(c["descricao"], value=not salvas or c["nCodCC"] in salvas,
+                                        key=f"rep_conta_{emp['id']}_{c['nCodCC']}"):
+            sel.append(c["nCodCC"])
+    return sel
+
+
+def regerar(g):
+    st.session_state.update({"rep_emp": g["empresa_id"], "rep_mes": g["mes"], "rep_ano": g["ano"], "rep_auto": True})
+
+
+def ultimas_geracoes():
+    st.markdown("**Últimas gerações**")
+    gs = db.listar_geracoes()
+    with st.container(key="cartao_geracoes"):
+        if not gs:
+            st.caption("Nenhum report gerado ainda. Escolha a empresa e o mês, clique em **Montar DRE** e gere os "
+                       "arquivos na aba **6. Análise e arquivos**.")
+            return
+        larg = [3.4, 1, 1.4, 1.5, 0.7, 1.1, 1.3]
+        cab = st.columns(larg)
+        for col, t in zip(cab, ["Empresa", "Competência", "Gerado em", "Gerado por", "", "", ""]):
+            col.markdown(f'<div class="tabela-cab">{t or "&nbsp;"}</div>', unsafe_allow_html=True)
+        for g in gs:
+            c = st.columns(larg, vertical_alignment="center")
+            c[0].write(g["empresa"])
+            c[1].write(f"{g['mes']:02d}/{g['ano']}")
+            dt = g["gerado_em"]
+            c[2].markdown(f'<span class="cinza">{dt[8:10]}/{dt[5:7]}/{dt[:4]} {dt[11:16]}</span>', unsafe_allow_html=True)
+            c[3].markdown(f'<span class="cinza">{g["gerado_por"] or ""}</span>', unsafe_allow_html=True)
+            c[4].button("Regerar", key=f"linkbtn_reg_{g['id']}", on_click=regerar, args=(g,))
+            for col, arq, rot, mime in ((c[5], g["xlsx"], "Baixar Excel", MIME_XLSX), (c[6], g["pptx"], "Baixar PowerPoint", MIME_PPTX)):
+                if arq and os.path.exists(arq):
+                    with open(arq, "rb") as f:
+                        col.download_button(f"⬇ {rot}", f.read(), file_name=os.path.basename(arq), mime=mime,
+                                            key=f"linkbtn_{rot}_{g['id']}")
 
 
 def categorias_mes(lancs):
@@ -320,7 +473,7 @@ def aba_classificacao(emp, cfg, mapa, lancs):
                        "Nome no relatório": m.get("conta", info["categoria"]),
                        "Revisar": "⚠️" if m.get("automatico") else ""})
     df = pd.DataFrame(linhas).sort_values(["Grupo da DRE", "Categoria no OMIE"])
-    ed = st.data_editor(df, use_container_width=True, hide_index=True, height=min(40 + 36 * len(df), 700),
+    ed = st.data_editor(df, width="stretch", hide_index=True, height=min(40 + 36 * len(df), 700),
                         key=f"cls_{emp['id']}", disabled=["chave", "Categoria no OMIE", "Valor no mês", "Revisar"],
                         column_config={
                             "chave": None,
@@ -346,7 +499,7 @@ def aba_rateios(emp, cfg, d, ano, mes):
     chave = f"{ano}-{mes:02d}"
     atuais = emp["config"].get("rateios", {}).get(chave, [])
     df = pd.DataFrame(atuais or [], columns=["descricao", "conta", "de", "para", "valor"])
-    ed = st.data_editor(df, num_rows="dynamic", use_container_width=True, key=f"rat_{emp['id']}_{chave}",
+    ed = st.data_editor(df, num_rows="dynamic", width="stretch", key=f"rat_{emp['id']}_{chave}",
                         column_config={
                             "descricao": st.column_config.TextColumn("Descrição"),
                             "conta": st.column_config.SelectboxColumn("Conta", options=contas, width="large"),
@@ -367,7 +520,7 @@ def aba_saldos(chave, saldos):
     st.caption("Saldos inicial e final de cada conta (vêm do extrato do OMIE). Ajuste se necessário — usados no slide "
                "de saldos e na conferência com o caixa.")
     df = pd.DataFrame(saldos or [], columns=["conta", "saldo_inicial", "saldo_final"])
-    ed = st.data_editor(df[["conta", "saldo_inicial", "saldo_final"]], num_rows="dynamic", use_container_width=True,
+    ed = st.data_editor(df[["conta", "saldo_inicial", "saldo_final"]], num_rows="dynamic", width="stretch",
                         key=f"sal_{chave}", column_config={
                             "conta": "Conta", "saldo_inicial": st.column_config.NumberColumn("Saldo inicial", format="%.2f"),
                             "saldo_final": st.column_config.NumberColumn("Saldo final", format="%.2f")})
@@ -418,21 +571,20 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes):
                                     {"titulo": titulo, "fechamento": fech, "positivos": pos, "atencao": ate,
                                      "conclusao": concl}, incluir_detalhada=detal)
         st.session_state[k + "arqs"] = (xlsx, pptx)
+        db.registrar_geracao(emp["id"], ano, mes, getpass.getuser(), xlsx, pptx)
         st.success(f"Arquivos salvos em `{pasta}`")
     arqs = st.session_state.get(k + "arqs")
     if arqs:
         c1, c2 = st.columns(2)
         with open(arqs[0], "rb") as f:
             c1.download_button("⬇️ Baixar Excel (DRE)", f.read(), file_name=os.path.basename(arqs[0]),
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                               mime=MIME_XLSX)
         with open(arqs[1], "rb") as f:
             c2.download_button("⬇️ Baixar PowerPoint", f.read(), file_name=os.path.basename(arqs[1]),
-                               mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+                               mime=MIME_PPTX)
 
 
-if pagina == "Empresas":
-    tela_empresas()
-elif pagina == "Plano da DRE":
-    tela_plano()
+if st.session_state["pagina"] == "bpo":
+    tela_bpo()
 else:
-    tela_fechamento()
+    tela_report()
