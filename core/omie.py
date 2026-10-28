@@ -6,6 +6,7 @@ base da tela "Finanças > Movimentação da Conta Corrente" exportada em Excel.
 import calendar
 import html
 import json
+import re
 import time
 from datetime import date, datetime
 
@@ -46,15 +47,20 @@ class OmieCliente:
             falha = dados.get("faultstring") if isinstance(dados, dict) else None
             if r.status_code == 200 and not falha:
                 return dados
+            recusa_omie = bool(falha)
             falha = str(falha or r.text[:300])
             # Sem registros não é erro para nós.
             if "não existem registros" in falha.lower() or "nao existem registros" in falha.lower():
                 return {}
             # Limite de consumo / requisição redundante: espera e tenta de novo.
+            # O OMIE devolve HTTP 500 para qualquer recusa (ex.: "Lançamento não cadastrado"); repetir esses
+            # erros só gera bloqueio por "consumo redundante". Repete apenas limite de consumo e falha de servidor.
             if any(x in falha.lower() for x in ("redundante", "bloqueada", "limite", "aguarde", "too many")) \
-                    or r.status_code in (425, 429, 500, 502, 503):
+                    or r.status_code in (425, 429, 502, 503) or (r.status_code == 500 and not recusa_omie):
                 if tentativa < tentativas - 1:
-                    time.sleep(espera)
+                    # o OMIE costuma dizer quanto esperar ("Aguarde 46 segundos...")
+                    pedido = re.search(r"aguarde (\d+) segundo", falha.lower())
+                    time.sleep(min(int(pedido.group(1)) + 1, 120) if pedido else espera)
                     espera *= 2
                     continue
             raise OmieErro(f"OMIE recusou {call}: {falha}")

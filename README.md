@@ -8,14 +8,19 @@ Você escolhe a **empresa** e o **mês**. O sistema puxa o extrato do OMIE pela 
 - um **PowerPoint** do Report Mensal no visual Savian, com capa, nossos serviços, DRE, DRE detalhada, saldos,
   recebimentos, fornecedores, funcionários, transferências, análise e pontos positivos/de atenção.
 
-## Como rodar
+## Como instalar e abrir (Windows)
 
-Precisa de Python 3.10 ou mais novo.
+1. No GitHub, clique em **Code › Download ZIP** e extraia a pasta onde preferir (ex.: `C:\Savian DRE`).
+2. Dê dois cliques em **`iniciar.bat`**. Na primeira vez ele instala o Python (se faltar) e as bibliotecas,
+   o que leva alguns minutos, e cria o atalho **Savian DRE** na área de trabalho.
+3. O sistema abre no navegador (`http://localhost:8501`). Deixe a janela preta aberta enquanto usa.
+   Das próximas vezes, é só usar o atalho da área de trabalho.
 
-- **Windows:** dê dois cliques em `iniciar.bat` (na primeira vez ele instala tudo).
-- **Mac/Linux:** `./iniciar.sh`
+As empresas, chaves do OMIE, classificações e os arquivos gerados ficam em **Documentos › Savian DRE**, fora da
+pasta do sistema. Para atualizar o sistema, baixe o ZIP de novo e substitua a pasta: nada do cadastro se perde.
 
-O sistema abre no navegador em `http://localhost:8501`.
+Se o Python não instalar sozinho, instale pelo [python.org](https://www.python.org/downloads/) marcando
+*Add python.exe to PATH* e abra o `iniciar.bat` de novo. Mac/Linux: `./iniciar.sh` (precisa de Python 3.10+).
 
 ## Passo a passo
 
@@ -30,7 +35,7 @@ O sistema abre no navegador em `http://localhost:8501`.
 5. Aba **3. Saldos**: saldos inicial e final por conta. Vêm do OMIE e podem ser ajustados.
 6. Aba **6. Análise e arquivos**: revise os textos automáticos e clique em *Gerar Excel e PowerPoint*.
 
-Os arquivos ficam salvos em `dados/saidas/<empresa>/<AAAA-MM>/` e também podem ser baixados na própria tela.
+Os arquivos ficam salvos em `Documentos/Savian DRE/saidas/<empresa>/<AAAA-MM>/` e também podem ser baixados na própria tela.
 
 ## Conferências
 
