@@ -3,6 +3,7 @@ from collections import OrderedDict, defaultdict
 
 from .plano import (FCL, GRUPOS_PADRAO, IGNORAR, RESULTADO_LIQUIDO, RESULTADOS, SECOES,
                     dividir_categoria, norm, sugerir_grupo)
+from .modelos import A_CLASSIFICAR, sugerir_pelo_modelo
 
 SEM_CC = "DESPESAS SEM CENTRO DE CUSTO"
 NAO_REALIZADO = {"atrasado", "a vencer", "vence hoje", "previsto", "aberto", "em aberto", "a pagar", "a receber"}
@@ -11,9 +12,28 @@ NAO_REALIZADO = {"atrasado", "a vencer", "vence hoje", "previsto", "aberto", "em
 def grupos_da_empresa(cfg):
     """Lista de grupos (codigo, nome, secao, relatorio) da empresa, ou o padrão."""
     gs = cfg.get("grupos") or [list(g) for g in GRUPOS_PADRAO]
+    if not any(g[0] == A_CLASSIFICAR[0] for g in gs):
+        gs = list(gs) + [list(A_CLASSIFICAR)]
     if not any(g[0] == IGNORAR for g in gs):
         gs = list(gs) + [list(GRUPOS_PADRAO[-1])]
     return [tuple(g) for g in gs]
+
+
+def sugerir(categoria, valor, transferencia, cfg):
+    """(grupo, nome da conta) para uma categoria: primeiro o modelo da empresa, depois as regras do plano
+    padrão, adaptadas aos grupos do modelo (mesmo código, senão o primeiro grupo da mesma seção)."""
+    if transferencia:
+        return IGNORAR, categoria.strip()
+    pelo_modelo = sugerir_pelo_modelo(categoria, cfg)
+    if pelo_modelo:
+        return pelo_modelo
+    g = sugerir_grupo(categoria, valor)
+    grupos = grupos_da_empresa(cfg)
+    if g in {x[0] for x in grupos}:
+        return g, categoria.strip()
+    secao = next((x[2] for x in GRUPOS_PADRAO if x[0] == g), "DESPESAS")
+    mesma = [x[0] for x in grupos if x[2] == secao and x[0] != A_CLASSIFICAR[0]]
+    return (mesma[0] if mesma else A_CLASSIFICAR[0]), categoria.strip()
 
 
 def realizado(l):
@@ -46,17 +66,27 @@ def categorias_do_mes(lancs):
     return res
 
 
-def completar_mapeamento(mapa, lancs):
+def completar_mapeamento(mapa, lancs, cfg=None):
     """Garante uma entrada no mapeamento para cada categoria do mês. Devolve chaves novas."""
     novas = []
     for k, info in categorias_do_mes(lancs).items():
         if k not in mapa:
-            mapa[k] = {"categoria": info["categoria"],
-                       "grupo": sugerir_grupo(info["categoria"], info["valor"], info["transferencia"]),
-                       "conta": info["categoria"].strip(),
-                       "automatico": True}
+            grupo, conta = sugerir(info["categoria"], info["valor"], info["transferencia"], cfg or {})
+            mapa[k] = {"categoria": info["categoria"], "grupo": grupo, "conta": conta, "automatico": True}
             novas.append(k)
     return novas
+
+
+def reclassificar(mapa, cfg):
+    """Depois de trocar o modelo: refaz as sugestões automáticas e as que apontam para grupos que não existem
+    mais. Classificações revisadas pelo usuário em grupos que continuam existindo são mantidas."""
+    codigos = {g[0] for g in grupos_da_empresa(cfg)}
+    for m in mapa.values():
+        if m.get("automatico") or m.get("grupo") not in codigos:
+            transf = m.get("grupo") == IGNORAR
+            sinal = 1 if m.get("grupo", "").startswith(("01", "0901", "0801")) else -1
+            m["grupo"], m["conta"] = sugerir(m.get("categoria", ""), sinal, transf, cfg)
+            m["automatico"] = True
 
 
 def _coluna(l, cfg):
