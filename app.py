@@ -77,8 +77,14 @@ def tela_empresas():
     if st.button("🔌 Testar conexão com o OMIE"):
         try:
             with st.spinner("Consultando contas correntes..."):
-                contas = OmieCliente(emp["app_key"], emp["app_secret"]).testar()
-            st.success(f"Conexão OK — {len(contas)} conta(s) corrente(s) encontrada(s).")
+                cli = OmieCliente(emp["app_key"], emp["app_secret"])
+                contas = cli.testar()
+                dados_omie = cli.empresa()
+            st.success(f"Conexão OK — {dados_omie.get('razao_social', '')} ({dados_omie.get('cnpj', '')}): "
+                       f"{len(contas)} conta(s) corrente(s) encontrada(s).")
+            if not emp["cnpj"] and dados_omie.get("cnpj"):
+                db.salvar(emp["nome"], dados_omie["cnpj"], emp["app_key"], emp["app_secret"], emp["id"])
+                st.info("CNPJ preenchido com o cadastro do OMIE.")
             st.session_state[f"contas_{emp['id']}"] = contas
         except OmieErro as e:
             st.error(str(e))
