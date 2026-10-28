@@ -5,6 +5,8 @@ setlocal
 cd /d "%~dp0"
 title Savian DRE
 
+if not exist "%~dp0app.py" goto semarquivos
+
 REM Empresas e chaves ficam em Documentos, para nao se perderem ao atualizar a pasta do sistema.
 if exist "dados\savian.db" (
   set "SAVIAN_DADOS=%~dp0dados"
@@ -36,7 +38,7 @@ if not defined PY (
 )
 %PY% -m venv .venv || goto erro
 ".venv\Scripts\python.exe" -m pip install --upgrade pip >nul
-".venv\Scripts\python.exe" -m pip install -r requirements.txt || goto erro
+".venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt" || goto erro
 
 :atalho
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -47,8 +49,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 
 echo.
 echo === Savian DRE aberto no navegador. Deixe esta janela aberta enquanto usa o sistema. ===
-".venv\Scripts\python.exe" -m streamlit run app.py --server.headless false --browser.gatherUsageStats false
+".venv\Scripts\python.exe" -m streamlit run "%~dp0app.py" --server.headless false --browser.gatherUsageStats false
 goto fim
+
+:semarquivos
+echo.
+echo Os arquivos do sistema nao estao na pasta deste iniciar.bat.
+echo Provavelmente ele foi aberto de dentro do ZIP.
+echo Clique com o botao direito no ZIP baixado, escolha "Extrair tudo...",
+echo abra a pasta extraida e de dois cliques no iniciar.bat de la.
+pause
+exit /b 1
 
 :erro
 echo.
