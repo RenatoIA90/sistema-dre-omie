@@ -63,7 +63,7 @@ st.markdown(f"""
  div[class*="st-key-linkbtn"] button p {{font-size: .85rem;}}
 </style>""", unsafe_allow_html=True)
 
-PAGINAS = {"bpo": ("BPO Financeiro", ":material/apartment:"), "report": ("Report", ":material/bar_chart:")}
+PAGINAS = {"bpo": ("Cadastrar Empresas", ":material/apartment:"), "report": ("Report", ":material/bar_chart:")}
 st.session_state.setdefault("pagina", "report")
 
 with st.sidebar:
@@ -112,8 +112,8 @@ def brl(v):
 # EMPRESAS
 # =====================================================================
 def tela_bpo():
-    topo("BPO Financeiro")
-    st.subheader("Empresas BPO")
+    topo("Cadastrar Empresas")
+    st.subheader("Cadastro de empresas")
     abas = st.tabs(["Cadastro de empresas", "Plano da DRE"])
     with abas[0]:
         tela_empresas()
@@ -347,10 +347,10 @@ def tela_report():
     topo("Reports BPO")
     c1, c2 = st.columns([5, 1])
     c1.subheader("Reports BPO")
-    c2.button("Empresas BPO", key="linkbtn_empresas", on_click=ir_para, args=("bpo",))
+    c2.button("Cadastrar Empresas", key="linkbtn_empresas", on_click=ir_para, args=("bpo",))
     empresas = db.listar()
     if not empresas:
-        st.info("Nenhuma empresa cadastrada. Vá em **BPO Financeiro** e cadastre a primeira "
+        st.info("Nenhuma empresa cadastrada. Vá em **Cadastrar Empresas** e cadastre a primeira "
                 "(nome, CNPJ, App Key e App Secret do OMIE).")
         return
     hoje = date.today()
