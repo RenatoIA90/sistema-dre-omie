@@ -61,6 +61,20 @@ st.markdown(f"""
    color: {AZUL}; text-decoration: underline; font-size: .85rem; box-shadow: none;}}
  div[class*="st-key-linkbtn"] button:hover {{color: #0B2A7A; background: transparent;}}
  div[class*="st-key-linkbtn"] button p {{font-size: .85rem;}}
+
+ /* mensagens de validação do cadastro */
+ .alerta-erro {{display: flex; gap: .8rem; align-items: flex-start; background: #FEF3F2; border: 1px solid #FECDCA;
+   border-left: 5px solid #D92D20; border-radius: 6px; padding: .85rem 1rem; margin: .4rem 0 1rem; color: #7A271A;}}
+ .alerta-erro .icone {{background: #D92D20; color: #FFFFFF; border-radius: 50%; min-width: 1.6rem; height: 1.6rem;
+   display: flex; align-items: center; justify-content: center; font-weight: 700;}}
+ .alerta-erro b {{color: #B42318;}}
+ .alerta-erro ul {{margin: .3rem 0 0 1rem; padding: 0;}}
+ .alerta-erro li {{margin: .1rem 0;}}
+ /* botões de excluir (vermelhos) */
+ div[class*="st-key-perigo"] button {{background: #D92D20; border-color: #D92D20; color: #FFFFFF;}}
+ div[class*="st-key-perigo"] button:hover {{background: #B42318; border-color: #B42318; color: #FFFFFF;}}
+ div[class*="st-key-xemp"] button {{border: 1px solid #FECDCA; color: #D92D20; background: #FFFFFF; font-weight: 700;}}
+ div[class*="st-key-xemp"] button:hover {{background: #FEF3F2; border-color: #D92D20; color: #B42318;}}
 </style>""", unsafe_allow_html=True)
 
 PAGINAS = {"bpo": ("Cadastrar Empresas", ":material/apartment:"), "report": ("Report", ":material/bar_chart:")}
@@ -108,6 +122,52 @@ def brl(v):
     return analise.brl(v)
 
 
+def alerta_erro(titulo, itens):
+    """Caixa vermelha de erro com a lista do que precisa ser corrigido."""
+    lis = "".join(f"<li>{html.escape(i)}</li>" for i in itens)
+    st.markdown(f'<div class="alerta-erro"><div class="icone">!</div><div><b>{html.escape(titulo)}</b>'
+                f'<ul>{lis}</ul></div></div>', unsafe_allow_html=True)
+
+
+def cnpj_valido(c):
+    """Confere os dígitos verificadores de um CNPJ (só números)."""
+    if len(c) != 14 or len(set(c)) == 1:
+        return False
+    for n in (12, 13):
+        pesos = list(range(n - 7, 1, -1)) + list(range(9, 1, -1))
+        dv = sum(int(d) * p for d, p in zip(c[:n], pesos)) % 11
+        if int(c[n]) != (0 if dv < 2 else 11 - dv):
+            return False
+    return True
+
+
+def formatar_cnpj(c):
+    return f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:12]}-{c[12:]}"
+
+
+def avisos_pendentes():
+    """Mensagem guardada antes de um st.rerun (ex.: empresa excluída)."""
+    msg = st.session_state.pop("aviso_ok", None)
+    if msg:
+        st.toast(msg, icon="✅")
+
+
+@st.dialog("Excluir empresa")
+def dialogo_excluir(emp):
+    st.markdown(f"Tem certeza que deseja excluir **{html.escape(emp['nome'])}**?")
+    st.caption("A empresa sai do cadastro e das listas do Report. Os arquivos já gerados em "
+               "Documentos › Savian DRE continuam salvos.")
+    c1, c2 = st.columns(2)
+    if c1.button("Sim, excluir", key="perigo_confirma", width="stretch"):
+        db.excluir(emp["id"])
+        st.session_state["cad_emp_proxima"] = "➕ Nova empresa"
+        st.session_state["rep_emp_proxima"] = None
+        st.session_state["aviso_ok"] = f"Empresa {emp['nome']} excluída."
+        st.rerun()
+    if c2.button("Cancelar", width="stretch"):
+        st.rerun()
+
+
 # =====================================================================
 # EMPRESAS
 # =====================================================================
@@ -121,35 +181,77 @@ def tela_bpo():
         tela_plano()
 
 
+def validar_empresa(nome, cnpj, app_key, app_secret, eid=None):
+    """(campos não preenchidos, outros erros) do formulário de empresa."""
+    faltando = [rot for rot, v in (("Nome da empresa", nome), ("CNPJ", cnpj), ("App Key", app_key),
+                                   ("App Secret", app_secret)) if not v.strip()]
+    erros = []
+    lista = db.cnpjs(cnpj)
+    invalidos = [c for c in lista if not cnpj_valido(c)]
+    if invalidos:
+        erros.append("CNPJ inválido: " + ", ".join(c if len(c) != 14 else formatar_cnpj(c) for c in invalidos)
+                     + " (confira os 14 números).")
+    repetidos = {c for c in lista if lista.count(c) > 1}
+    if repetidos:
+        erros.append("CNPJ repetido no próprio cadastro: " + ", ".join(formatar_cnpj(c) for c in repetidos) + ".")
+    for c, outra in db.cnpj_em_uso(lista, eid).items():
+        erros.append(f"O CNPJ {formatar_cnpj(c)} já está cadastrado na empresa {outra}. "
+                     "Não é permitido cadastrar o mesmo CNPJ duas vezes.")
+    return faltando, erros
+
+
 def tela_empresas():
+    avisos_pendentes()
     empresas = db.listar()
     nomes = ["➕ Nova empresa"] + [f"{e['nome']} (#{e['id']})" for e in empresas]
-    escolha = st.selectbox("Selecione para editar", nomes)
+    if "cad_emp_proxima" in st.session_state:
+        st.session_state["cad_emp"] = st.session_state.pop("cad_emp_proxima")
+    if st.session_state.get("cad_emp") not in nomes:
+        st.session_state["cad_emp"] = nomes[0]
+    escolha = st.selectbox("Selecione para editar", nomes, key="cad_emp")
     emp = None if escolha.startswith("➕") else empresas[nomes.index(escolha) - 1]
 
     with st.form("form_empresa"):
-        st.markdown("**Dados e chaves da API OMIE**")
+        st.markdown("**Dados e chaves da API OMIE** — todos os campos são obrigatórios")
         c1, c2 = st.columns(2)
-        nome = c1.text_input("Nome da empresa (aparece no relatório)", value=emp["nome"] if emp else "")
-        cnpj = c2.text_area("CNPJ(s) — um por linha", value=emp["cnpj"] if emp else "", height=70)
+        nome = c1.text_input("Nome da empresa (aparece no relatório) *", value=emp["nome"] if emp else "")
+        cnpj = c2.text_area("CNPJ(s) — um por linha *", value=emp["cnpj"] if emp else "", height=70)
         c3, c4 = st.columns(2)
-        app_key = c3.text_input("App Key", value=emp["app_key"] if emp else "")
-        app_secret = c4.text_input("App Secret", value=emp["app_secret"] if emp else "", type="password")
+        app_key = c3.text_input("App Key *", value=emp["app_key"] if emp else "")
+        app_secret = c4.text_input("App Secret *", value=emp["app_secret"] if emp else "", type="password")
+        ramo = None
+        if not emp:
+            opcoes = todos_modelos()
+            ramo = st.selectbox("Ramo da empresa (modelo de DRE) *", list(opcoes),
+                                help="Define os grupos da DRE. Facilities usa o modelo da HAGILI. Dá para trocar "
+                                     "depois em “Modelo de DRE”.")
         st.caption("No OMIE: Configurações › Integrações › Minhas aplicações (ou developer.omie.com.br › Meus aplicativos).")
         salvar = st.form_submit_button("💾 Salvar empresa", type="primary")
     if salvar:
-        if not nome.strip():
-            st.error("Informe o nome da empresa.")
-        else:
-            eid = db.salvar(nome.strip(), cnpj.strip(), app_key.strip(), app_secret.strip(), emp["id"] if emp else None)
-            st.success(f"Empresa salva (#{eid}).")
+        faltando, erros = validar_empresa(nome, cnpj, app_key, app_secret, emp["id"] if emp else None)
+        if faltando:
+            alerta_erro("Existe campo obrigatório não preenchido" if len(faltando) == 1 else
+                        "Existem campos obrigatórios não preenchidos",
+                        [f"Preencha o campo “{f}”." for f in faltando])
+        if erros:
+            alerta_erro("Não foi possível salvar a empresa", erros)
+        if not faltando and not erros:
+            cnpj_fmt = "\n".join(formatar_cnpj(c) for c in db.cnpjs(cnpj))
+            eid = db.salvar(nome.strip(), cnpj_fmt, app_key.strip(), app_secret.strip(), emp["id"] if emp else None)
+            if ramo:
+                aplicar_modelo(db.obter(eid), ramo, todos_modelos()[ramo])
+            st.session_state["aviso_ok"] = f"Empresa {nome.strip()} salva."
+            st.session_state["cad_emp_proxima"] = f"{nome.strip()} (#{eid})"
             st.rerun()
 
     if not emp:
         return
     cfg = emp["config"]
 
-    if st.button("🔌 Testar conexão com o OMIE"):
+    b1, _, b2 = st.columns([2, 4, 1.6])
+    if b2.button("Excluir empresa", icon=":material/delete:", key="perigo_excluir_cad", width="stretch"):
+        dialogo_excluir(emp)
+    if b1.button("🔌 Testar conexão com o OMIE"):
         try:
             with st.spinner("Consultando contas correntes..."):
                 cli = OmieCliente(emp["app_key"], emp["app_secret"])
@@ -157,9 +259,15 @@ def tela_empresas():
                 dados_omie = cli.empresa()
             st.success(f"Conexão OK — {dados_omie.get('razao_social', '')} ({dados_omie.get('cnpj', '')}): "
                        f"{len(contas)} conta(s) corrente(s) encontrada(s).")
-            if not emp["cnpj"] and dados_omie.get("cnpj"):
-                db.salvar(emp["nome"], dados_omie["cnpj"], emp["app_key"], emp["app_secret"], emp["id"])
-                st.info("CNPJ preenchido com o cadastro do OMIE.")
+            cnpj_omie = db.so_digitos(dados_omie.get("cnpj"))
+            if not emp["cnpj"] and cnpj_omie:
+                outra = db.cnpj_em_uso([cnpj_omie], emp["id"]).get(cnpj_omie)
+                if outra:
+                    alerta_erro("CNPJ já cadastrado", [f"O CNPJ do OMIE ({formatar_cnpj(cnpj_omie)}) já está na "
+                                                       f"empresa {outra}. Confira se as chaves são desta empresa."])
+                else:
+                    db.salvar(emp["nome"], formatar_cnpj(cnpj_omie), emp["app_key"], emp["app_secret"], emp["id"])
+                    st.info("CNPJ preenchido com o cadastro do OMIE.")
             guardar_contas(emp, contas)
         except OmieErro as e:
             st.error(str(e))
@@ -221,11 +329,6 @@ def tela_empresas():
         db.salvar_config(emp["id"], cfg)
         st.success("Configuração salva.")
 
-    with st.expander("🗑️ Excluir empresa"):
-        if st.button(f"Excluir {emp['nome']}", type="secondary"):
-            db.excluir(emp["id"])
-            st.rerun()
-
 
 def todos_modelos():
     return {**{f"{n} (pronto)": m for n, m in modelos.MODELOS_PRONTOS.items()},
@@ -237,6 +340,7 @@ def aplicar_modelo(emp, nome, modelo):
     cfg["grupos"] = modelos.completar_grupos(modelo["grupos"])
     cfg["contas_modelo"] = [list(c) for c in modelo["contas"]]
     cfg["modelo_dre"] = nome
+    cfg["grupos_criados"] = []
     mapa = emp["mapa"]
     dre.reclassificar(mapa, cfg)
     db.salvar_config(emp["id"], cfg)
@@ -247,13 +351,14 @@ def aplicar_modelo(emp, nome, modelo):
 def secao_modelo_dre(emp):
     st.subheader("Modelo de DRE")
     cfg = emp["config"]
-    st.caption(f"Modelo em uso: **{cfg.get('modelo_dre') or 'Serviços (padrão Savian) (pronto)'}**. "
-               "O modelo define os grupos da DRE e ajuda a classificar as categorias do OMIE. "
-               "Classificações que você já revisou continuam valendo se o grupo existir no novo modelo.")
+    atual = modelos.NOMES_ANTIGOS.get(cfg.get("modelo_dre"), cfg.get("modelo_dre")) or f"{modelos.MODELO_PADRAO} (pronto)"
+    st.caption(f"Modelo em uso: **{atual}**. O modelo define os grupos da DRE conforme o ramo da empresa "
+               "(Facilities = modelo HAGILI, casa noturna, artistas...) e ajuda a classificar as categorias do OMIE. "
+               "Para trocar, escolha outro modelo e clique em Aplicar. Classificações que você já revisou continuam "
+               "valendo se o grupo existir no novo modelo.")
     opcoes = todos_modelos()
     c1, c2, c3 = st.columns([3, 1.3, 1.3], vertical_alignment="bottom")
     nomes = list(opcoes)
-    atual = cfg.get("modelo_dre")
     escolha = c1.selectbox("Modelos disponíveis", nomes, index=nomes.index(atual) if atual in nomes else 0,
                            key=f"modelo_sel_{emp['id']}")
     if c2.button("Aplicar à empresa", key=f"modelo_apl_{emp['id']}", width="stretch"):
@@ -264,6 +369,17 @@ def secao_modelo_dre(emp):
     modelos.exportar_excel_modelo(buf, escolha, modelos.completar_grupos(m["grupos"]), m["contas"])
     c3.download_button("Baixar em Excel", buf.getvalue(), file_name=f"MODELO DRE - {escolha}.xlsx",
                        mime=MIME_XLSX, key=f"modelo_xls_{emp['id']}", width="stretch")
+
+    criar = st.toggle("Criar grupos novos no DRE para categorias que não existem no modelo",
+                      value=cfg.get("criar_grupos", True), key=f"criar_grupos_{emp['id']}",
+                      help="Ex.: uma balada com a categoria “Pirotecnia” ganha o grupo 060800-PIROTECNIA, no mesmo "
+                           "padrão de códigos do modelo. Desligado, a categoria vai para OUTRAS DESPESAS (A CLASSIFICAR).")
+    if criar != cfg.get("criar_grupos", True):
+        cfg["criar_grupos"] = criar
+        db.salvar_config(emp["id"], cfg)
+    if cfg.get("grupos_criados"):
+        st.caption("Grupos criados automaticamente para esta empresa (podem ser renomeados ou removidos na aba "
+                   "**Plano da DRE**): " + ", ".join(f"`{g}`" for g in cfg["grupos_criados"]))
 
     with st.expander("📥 Importar um DRE de exemplo em Excel e criar um modelo novo"):
         st.caption("Envie um report de fechamento (como o da Hagili ou o que o sistema gera) ou o modelo baixado "
@@ -319,7 +435,7 @@ def tela_plano():
         db.salvar_config(emp["id"], cfg)
         st.success("Plano salvo.")
     if c2.button("↩️ Voltar ao plano padrão"):
-        cfg.update({"grupos": None, "contas_modelo": [], "modelo_dre": None})
+        cfg.update({"grupos": None, "contas_modelo": [], "modelo_dre": None, "grupos_criados": []})
         db.salvar_config(emp["id"], cfg)
         st.rerun()
 
@@ -345,6 +461,7 @@ def tela_plano():
 # =====================================================================
 def tela_report():
     topo("Reports BPO")
+    avisos_pendentes()
     c1, c2 = st.columns([5, 1])
     c1.subheader("Reports BPO")
     c2.button("Cadastrar Empresas", key="linkbtn_empresas", on_click=ir_para, args=("bpo",))
@@ -357,14 +474,18 @@ def tela_report():
     st.session_state.setdefault("rep_mes", hoje.month - 1 or 12)
     st.session_state.setdefault("rep_ano", hoje.year if hoje.month > 1 else hoje.year - 1)
     ids = [e["id"] for e in empresas]
+    if "rep_emp_proxima" in st.session_state:
+        st.session_state["rep_emp"] = st.session_state.pop("rep_emp_proxima")
     if st.session_state.get("rep_emp") not in ids:
         st.session_state["rep_emp"] = ids[0]
     por_id = {e["id"]: e for e in empresas}
 
     with st.container(key="cartao_filtros"):
         tipo = st.segmented_control("Relatório", ["DRE", "Fluxo de Caixa"], default="DRE", key="rep_tipo") or "DRE"
-        c1, c2, c3, c4, c5 = st.columns([4, 1.1, 1.1, 2, 1.8], vertical_alignment="bottom")
+        c1, cx, c2, c3, c4, c5 = st.columns([4, .45, 1.1, 1.1, 2, 1.8], vertical_alignment="bottom")
         emp = por_id[c1.selectbox("Empresa", ids, format_func=lambda i: por_id[i]["nome"], key="rep_emp")]
+        if cx.button("✕", key="xemp_report", help=f"Excluir a empresa {emp['nome']}", width="stretch"):
+            dialogo_excluir(emp)
         mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda m: f"{m:02d}", key="rep_mes")
         ano = c3.number_input("Ano", 2015, 2100, key="rep_ano")
         fonte = c4.selectbox("Fonte", ["API OMIE", "Planilha exportada do OMIE"])
@@ -418,9 +539,18 @@ def tela_report():
 
     cfg = copy.deepcopy(emp["config"])
     mapa = emp["mapa"]
+    antes = list(cfg.get("grupos_criados") or [])
     novas = dre.completar_mapeamento(mapa, dados["lancs"], cfg)
     if novas:
         db.salvar_mapa(emp["id"], mapa)
+    criados = [g for g in cfg.get("grupos_criados") or [] if g not in antes]
+    if criados:
+        emp["config"]["grupos"] = cfg["grupos"]
+        emp["config"]["grupos_criados"] = cfg["grupos_criados"]
+        db.salvar_config(emp["id"], emp["config"])
+        st.info(f"{len(criados)} categoria(s) deste mês não existiam no modelo de DRE da empresa e viraram grupos "
+                "novos, no mesmo padrão: " + ", ".join(f"**{g}**" for g in criados)
+                + ". Confira na aba **1. Classificação**.", icon="🆕")
     cfg["rateios_mes"] = cfg.get("rateios", {}).get(f"{ano}-{mes:02d}", [])
     saldos = dados["saldos"]
 
@@ -473,36 +603,41 @@ def tela_report():
 def tela_fluxo(emp, cfg, mapa, lancs, base, saldos, ano, mes):
     competencia = f"{ano}-{mes:02d}"
     previstos = cfg.get("previstos", {}).get(competencia, {})
-    linhas = fluxo.montar_fluxo(base, fluxo.base_pendente(lancs, cfg, mapa), saldos, cfg, previstos)
+    pendentes = fluxo.base_pendente(lancs, cfg, mapa)
+    linhas = fluxo.montar_fluxo(base, pendentes, saldos, cfg, previstos)
     res = fluxo.resumo(linhas)
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Saldo inicial", brl(res["saldo_inicial"]))
-    m2.metric("Entradas", brl(res["entradas"]))
-    m3.metric("Saídas", brl(res["saidas"]))
-    m4.metric("Saldo final", brl(res["saldo_final"]))
+    m2.metric("Entradas realizadas", brl(res["entradas"]), f"previsto {brl(res['entradas_previstas'])}",
+              delta_color="off")
+    m3.metric("Saídas realizadas", brl(res["saidas"]), f"previsto {brl(res['saidas_previstas'])}", delta_color="off")
+    m4.metric("Saldo final realizado", brl(res["saldo_final"]))
     m5.metric("Saldo final previsto", brl(res["saldo_final_previsto"]))
 
-    abas = st.tabs(["1. Fluxo de caixa", "2. Fluxo diário", "3. Excel"])
+    abas = st.tabs(["1. Previsto x Realizado", "2. Fluxo diário", "3. Excel"])
     with abas[0]:
-        st.caption("Realizado = movimento do extrato no mês. **Gastos previstos**: digite o valor previsto de cada "
-                   "conta (saídas com sinal negativo). Enquanto não for digitado, o sistema sugere o realizado mais o "
-                   "que ainda está em aberto no OMIE no mês (previstos, atrasados, a vencer). A classificação das "
-                   "categorias é a mesma da DRE.")
+        st.caption("**Previsto**: digite o valor previsto de cada conta (saídas com sinal negativo). Enquanto não for "
+                   "digitado, o sistema sugere o realizado mais o que ainda está em aberto no OMIE no mês (previstos, "
+                   "atrasados, a vencer). **Realizado** = movimento do extrato no mês. A classificação das categorias "
+                   "é a mesma da DRE.")
         df = pd.DataFrame([{"chave": l["chave"], "tipo": l["tipo"],
-                            "Descrição": {"grupo": "   ", "conta": "      "}.get(l["tipo"], "") + l["descricao"],
-                            "Realizado": round(l["realizado"], 2), "Gastos previstos": round(l["previsto"], 2),
-                            "Diferença": round(l["realizado"] - l["previsto"], 2)} for l in linhas])
+                            "Descrição": {"grupo": "   ", "conta": "      "}.get(l["tipo"], "")
+                            + (l.get("codigo") or l["descricao"]),
+                            "Previsto": round(l["previsto"], 2), "Realizado": round(l["realizado"], 2),
+                            "Diferença": round(l["realizado"] - l["previsto"], 2),
+                            "% Realizado": (l["realizado"] / l["previsto"] * 100) if l["previsto"] else None}
+                           for l in linhas])
         ed = st.data_editor(df, hide_index=True, width="stretch", height=min(40 + 35 * len(df), 720),
                             key=f"fluxo_{emp['id']}_{competencia}",
-                            disabled=["Descrição", "Realizado", "Diferença"],
+                            disabled=["Descrição", "Realizado", "Diferença", "% Realizado"],
                             column_config={"chave": None, "tipo": None,
+                                           "Previsto": st.column_config.NumberColumn(format="%.2f"),
                                            "Realizado": st.column_config.NumberColumn(format="%.2f"),
-                                           "Gastos previstos": st.column_config.NumberColumn(format="%.2f"),
-                                           "Diferença": st.column_config.NumberColumn(format="%.2f")})
+                                           "Diferença": st.column_config.NumberColumn(format="%.2f"),
+                                           "% Realizado": st.column_config.NumberColumn(format="%.0f%%")})
         c1, c2 = st.columns([1, 1])
-        if c1.button("💾 Salvar gastos previstos", type="primary"):
-            novos = {r["chave"]: float(r["Gastos previstos"] or 0) for r in ed.to_dict("records")
-                     if r["tipo"] == "conta"}
+        if c1.button("💾 Salvar previsto", type="primary"):
+            novos = {r["chave"]: float(r["Previsto"] or 0) for r in ed.to_dict("records") if r["tipo"] == "conta"}
             emp["config"].setdefault("previstos", {})[competencia] = novos
             db.salvar_config(emp["id"], emp["config"])
             st.rerun()
@@ -511,24 +646,30 @@ def tela_fluxo(emp, cfg, mapa, lancs, base, saldos, ano, mes):
             db.salvar_config(emp["id"], emp["config"])
             st.rerun()
         st.caption("Só as linhas de conta (as mais recuadas) são gravadas; grupos, seções e saldos são recalculados.")
-    dias = fluxo.diario(base, saldos)
+    dias = fluxo.diario(base, saldos, pendentes)
     with abas[1]:
         dfd = pd.DataFrame(dias)
         if dfd.empty:
-            st.info("Sem movimento realizado no mês.")
+            st.info("Sem movimento no mês.")
         else:
             dfd["data"] = pd.to_datetime(dfd["data"]).dt.strftime("%d/%m/%Y")
             st.dataframe(dfd.rename(columns={"data": "Data", "entradas": "Entradas", "saidas": "Saídas",
-                                             "transferencias": "Transferências", "saldo": "Saldo do dia"}),
+                                             "transferencias": "Transferências", "saldo": "Saldo realizado",
+                                             "entradas_prev": "Entradas previstas", "saidas_prev": "Saídas previstas",
+                                             "saldo_projetado": "Saldo projetado"}),
                          hide_index=True, width="stretch", height=min(40 + 35 * len(dfd), 720))
+            st.caption("Previstas = lançamentos ainda em aberto no OMIE, na data de cada um. "
+                       "Saldo projetado = saldo realizado + o que está em aberto.")
     with abas[2]:
-        com_prev = st.checkbox("Incluir a coluna “Gastos previstos” ao lado do realizado", value=True)
+        st.caption("Excel no mesmo padrão visual do modelo de DRE (Aptos Narrow, cabeçalhos azul-marinho, grupos em "
+                   "cinza), com Previsto, Realizado e Diferença puxados por fórmulas da aba BASE FLUXO.")
+        com_prev = st.checkbox("Incluir as colunas Previsto e Diferença ao lado do Realizado", value=True)
         k = f"fluxo_arq_{emp['id']}_{competencia}"
         if st.button("📦 Gerar Excel do Fluxo de Caixa", type="primary"):
             pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), competencia)
             os.makedirs(pasta, exist_ok=True)
             arq = os.path.join(pasta, f"FLUXO DE CAIXA {emp['nome']} {mes:02d}_{ano}.xlsx".replace("/", "-"))
-            fluxo.gerar_excel_fluxo(arq, emp, ano, mes, linhas, dias, base, com_prev)
+            fluxo.gerar_excel_fluxo(arq, emp, ano, mes, linhas, dias, base, pendentes, saldos, com_prev)
             st.session_state[k] = arq
             st.success(f"Arquivo salvo em `{pasta}`")
         if st.session_state.get(k):

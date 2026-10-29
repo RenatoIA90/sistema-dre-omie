@@ -27,6 +27,11 @@ Se o Python não instalar sozinho, instale pelo [python.org](https://www.python.
 1. **Empresas**: cadastre nome, CNPJ(s), **App Key** e **App Secret** do OMIE e clique em *Testar conexão*.
    Escolha como as colunas da DRE serão divididas: **por conta corrente** (ex.: MS Festas), **por projeto**
    (ex.: Hagili) ou só o total.
+   Todos os campos são obrigatórios e o mesmo CNPJ não pode ser cadastrado em duas empresas. Na criação, escolha o
+   **ramo** (modelo de DRE): Facilities (modelo HAGILI), Casa noturna / Balada, Promoção de artistas, Eventos,
+   Comércio ou Indústria. Dá para trocar depois em *Modelo de DRE*. Categorias do OMIE que não existem no modelo
+   viram grupos novos no mesmo padrão de códigos (ex.: 060800-PIROTECNIA); isso pode ser desligado por empresa.
+   Para excluir uma empresa: botão *Excluir empresa* no cadastro ou o **✕** ao lado do nome no Report.
 2. **Fechamento do mês**: escolha empresa, mês e ano e clique em *Puxar dados e montar DRE*.
    Sem API, use a opção *Planilha exportada do OMIE* (Finanças › Movimentação da Conta Corrente › Exportar).
 3. Aba **1. Classificação**: confira em qual grupo da DRE cada categoria do OMIE caiu. Na primeira vez é uma sugestão
@@ -34,6 +39,17 @@ Se o Python não instalar sozinho, instale pelo [python.org](https://www.python.
 4. Aba **2. Rateios** (opcional): move valores entre colunas (ex.: combustível sem centro de custo → postos).
 5. Aba **3. Saldos**: saldos inicial e final por conta. Vêm do OMIE e podem ser ajustados.
 6. Aba **6. Análise e arquivos**: revise os textos automáticos e clique em *Gerar Excel e PowerPoint*.
+
+## Fluxo de Caixa (previsto x realizado)
+
+No Report, escolha **Fluxo de Caixa** em vez de DRE. O fluxo usa a mesma base puxada do OMIE e a mesma classificação
+da DRE: saldo inicial, entradas e saídas por grupo/conta, transferências, variação e saldo final.
+
+- **Previsto**: sugestão = realizado + lançamentos ainda em aberto no OMIE no mês; pode ser digitado por conta e fica salvo.
+- **Realizado**: movimento do extrato no mês.
+- **Fluxo diário**: saldo realizado e saldo projetado (com o que está em aberto) dia a dia.
+- **Excel** no mesmo visual do modelo de DRE (Aptos Narrow, cabeçalhos azul-marinho, grupos em cinza, seções com
+  borda), com Previsto, Realizado e Diferença puxados por SUMIFS da aba BASE FLUXO, mais SALDOS e FLUXO DIÁRIO.
 
 Os arquivos ficam salvos em `Documentos/Savian DRE/saidas/<empresa>/<AAAA-MM>/` e também podem ser baixados na própria tela.
 
@@ -51,6 +67,7 @@ Os arquivos ficam salvos em `Documentos/Savian DRE/saidas/<empresa>/<AAAA-MM>/` 
 | `core/importador.py` | Leitura da planilha exportada do OMIE |
 | `core/plano.py` | Plano padrão da DRE e classificação automática das categorias |
 | `core/dre.py` | Base classificada, DRE, quadros e conferências |
+| `core/fluxo.py` | Fluxo de caixa previsto x realizado e Excel do fluxo |
 | `core/excel.py` | Geração do Excel |
 | `core/apresentacao.py` / `core/analise.py` | PowerPoint e textos da análise |
 | `testes/gerar_exemplos.py` | Gera exemplos a partir dos arquivos-modelo |

@@ -117,6 +117,12 @@ def sugerir_grupo(categoria, valor_total, flag_transferencia=False):
     return "010200" if entrada else "060900"
 
 
+def regra_encontrada(categoria):
+    """True se alguma regra do plano padrão reconhece a categoria."""
+    t = norm(categoria)
+    return any(_casa(x, t) for termos, _e, _s in REGRAS for x in termos)
+
+
 _RX_RATEIO = re.compile(r"\s*(.+?)\s*\((\d+(?:[.,]\d+)?)%\)\s*")
 
 

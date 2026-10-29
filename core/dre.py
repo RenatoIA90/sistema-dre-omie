@@ -2,8 +2,8 @@
 from collections import OrderedDict, defaultdict
 
 from .plano import (FCL, GRUPOS_PADRAO, IGNORAR, RESULTADO_LIQUIDO, RESULTADOS, SECOES,
-                    dividir_categoria, norm, sugerir_grupo)
-from .modelos import A_CLASSIFICAR, sugerir_pelo_modelo
+                    dividir_categoria, norm, regra_encontrada, sugerir_grupo)
+from .modelos import A_CLASSIFICAR, completar_grupos, relatorio_sugerido, sugerir_pelo_modelo
 
 SEM_CC = "DESPESAS SEM CENTRO DE CUSTO"
 NAO_REALIZADO = {"atrasado", "a vencer", "vence hoje", "previsto", "aberto", "em aberto", "a pagar", "a receber"}
@@ -21,7 +21,8 @@ def grupos_da_empresa(cfg):
 
 def sugerir(categoria, valor, transferencia, cfg):
     """(grupo, nome da conta) para uma categoria: primeiro o modelo da empresa, depois as regras do plano
-    padrão, adaptadas aos grupos do modelo (mesmo código, senão o primeiro grupo da mesma seção)."""
+    padrão, adaptadas aos grupos do modelo (mesmo nome de grupo). Se o modelo não tiver um grupo adequado e
+    cfg['criar_grupos'] estiver ligado, cria um grupo novo no padrão do modelo (ex.: 040800-NOME)."""
     if transferencia:
         return IGNORAR, categoria.strip()
     pelo_modelo = sugerir_pelo_modelo(categoria, cfg)
@@ -29,11 +30,68 @@ def sugerir(categoria, valor, transferencia, cfg):
         return pelo_modelo
     g = sugerir_grupo(categoria, valor)
     grupos = grupos_da_empresa(cfg)
-    if g in {x[0] for x in grupos}:
-        return g, categoria.strip()
-    secao = next((x[2] for x in GRUPOS_PADRAO if x[0] == g), "DESPESAS")
+    padrao = next((x for x in GRUPOS_PADRAO if x[0] == g), None)
+    secao = padrao[2] if padrao else "DESPESAS"
+    sem_regra = g in (A_CLASSIFICAR[0], "010200") and not regra_encontrada(categoria)
+    if padrao and not sem_regra:
+        achado = _grupo_equivalente(padrao, grupos)
+        if achado:
+            return achado, categoria.strip()
+    if cfg.get("criar_grupos", True):
+        if sem_regra:
+            sec = "ENTRADAS" if valor >= 0 else "DESPESAS"
+            return criar_grupo(cfg, categoria.strip(), sec), categoria.strip()
+        return criar_grupo(cfg, padrao[1], secao, padrao[3]), categoria.strip()
     mesma = [x[0] for x in grupos if x[2] == secao and x[0] != A_CLASSIFICAR[0]]
     return (mesma[0] if mesma else A_CLASSIFICAR[0]), categoria.strip()
+
+
+_PALAVRAS_FRACAS = {"outras", "outros", "despesas", "custos", "entradas", "saidas", "servicos", "operacional",
+                    "operacionais", "nao", "geral", "gerais", "classificar"}
+
+
+def _grupo_equivalente(padrao, grupos):
+    """Grupo do modelo que corresponde a um grupo do plano padrão: mesmo nome, mesmo código e nome parecido,
+    ou nome com a mesma palavra principal (ex.: ENCARGOS SOCIAIS ~ ENCARGOS E BENEFÍCIOS)."""
+    cod, nome, secao, _ = padrao
+    candidatos = [x for x in grupos if x[0] not in (IGNORAR, A_CLASSIFICAR[0])]
+    for x in candidatos:
+        if norm(x[1]) == norm(nome):
+            return x[0]
+    if cod == "010100":  # recebimentos: a primeira linha de entradas do modelo (vendas, bilheteria, cachês...)
+        ent = [x for x in candidatos if x[2] == "ENTRADAS"]
+        return ent[0][0] if ent else None
+    chaves = [w for w in norm(nome).replace("/", " ").replace(",", " ").split() if len(w) > 3
+              and w not in _PALAVRAS_FRACAS]
+    for w in chaves:
+        for x in sorted(candidatos, key=lambda x: x[2] != secao):
+            if w in norm(x[1]).split():
+                return x[0]
+    return None
+
+
+_PREFIXOS = {"ENTRADAS": ["01"], "DEDUCOES": ["02", "03"], "CUSTOS": ["04"], "DESPESAS": ["06", "05", "07"],
+             "FINANCEIRO": ["08"], "NAO_OPERACIONAL": ["09"]}
+
+
+def criar_grupo(cfg, nome, secao, relatorio=None):
+    """Inclui um grupo (nível 2) nos grupos da empresa, com o próximo código livre da seção, e devolve o código.
+    Se já existir um grupo com o mesmo nome, devolve o código dele."""
+    gs = [list(x) for x in grupos_da_empresa(cfg)]
+    nome = nome.strip().upper()
+    for x in gs:
+        if norm(x[1]) == norm(nome):
+            return x[0]
+    usados = {x[0] for x in gs}
+    livres = (f"{p}{i:02d}00" for p in _PREFIXOS.get(secao, ["06"]) for i in range(1, 100))
+    cod = next((c for c in livres if c not in usados and c != A_CLASSIFICAR[0]), A_CLASSIFICAR[0])
+    if cod == A_CLASSIFICAR[0]:
+        return cod
+    rel = relatorio if relatorio is not None else relatorio_sugerido(nome, secao)
+    gs.append([cod, nome, secao, rel])
+    cfg["grupos"] = completar_grupos(gs)
+    cfg.setdefault("grupos_criados", []).append(f"{cod}-{nome}")
+    return cod
 
 
 def realizado(l):
