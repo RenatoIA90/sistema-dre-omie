@@ -473,36 +473,41 @@ def tela_report():
 def tela_fluxo(emp, cfg, mapa, lancs, base, saldos, ano, mes):
     competencia = f"{ano}-{mes:02d}"
     previstos = cfg.get("previstos", {}).get(competencia, {})
-    linhas = fluxo.montar_fluxo(base, fluxo.base_pendente(lancs, cfg, mapa), saldos, cfg, previstos)
+    pendentes = fluxo.base_pendente(lancs, cfg, mapa)
+    linhas = fluxo.montar_fluxo(base, pendentes, saldos, cfg, previstos)
     res = fluxo.resumo(linhas)
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Saldo inicial", brl(res["saldo_inicial"]))
-    m2.metric("Entradas", brl(res["entradas"]))
-    m3.metric("Saídas", brl(res["saidas"]))
-    m4.metric("Saldo final", brl(res["saldo_final"]))
+    m2.metric("Entradas realizadas", brl(res["entradas"]), f"previsto {brl(res['entradas_previstas'])}",
+              delta_color="off")
+    m3.metric("Saídas realizadas", brl(res["saidas"]), f"previsto {brl(res['saidas_previstas'])}", delta_color="off")
+    m4.metric("Saldo final realizado", brl(res["saldo_final"]))
     m5.metric("Saldo final previsto", brl(res["saldo_final_previsto"]))
 
-    abas = st.tabs(["1. Fluxo de caixa", "2. Fluxo diário", "3. Excel"])
+    abas = st.tabs(["1. Previsto x Realizado", "2. Fluxo diário", "3. Excel"])
     with abas[0]:
-        st.caption("Realizado = movimento do extrato no mês. **Gastos previstos**: digite o valor previsto de cada "
-                   "conta (saídas com sinal negativo). Enquanto não for digitado, o sistema sugere o realizado mais o "
-                   "que ainda está em aberto no OMIE no mês (previstos, atrasados, a vencer). A classificação das "
-                   "categorias é a mesma da DRE.")
+        st.caption("**Previsto**: digite o valor previsto de cada conta (saídas com sinal negativo). Enquanto não for "
+                   "digitado, o sistema sugere o realizado mais o que ainda está em aberto no OMIE no mês (previstos, "
+                   "atrasados, a vencer). **Realizado** = movimento do extrato no mês. A classificação das categorias "
+                   "é a mesma da DRE.")
         df = pd.DataFrame([{"chave": l["chave"], "tipo": l["tipo"],
-                            "Descrição": {"grupo": "   ", "conta": "      "}.get(l["tipo"], "") + l["descricao"],
-                            "Realizado": round(l["realizado"], 2), "Gastos previstos": round(l["previsto"], 2),
-                            "Diferença": round(l["realizado"] - l["previsto"], 2)} for l in linhas])
+                            "Descrição": {"grupo": "   ", "conta": "      "}.get(l["tipo"], "")
+                            + (l.get("codigo") or l["descricao"]),
+                            "Previsto": round(l["previsto"], 2), "Realizado": round(l["realizado"], 2),
+                            "Diferença": round(l["realizado"] - l["previsto"], 2),
+                            "% Realizado": (l["realizado"] / l["previsto"] * 100) if l["previsto"] else None}
+                           for l in linhas])
         ed = st.data_editor(df, hide_index=True, width="stretch", height=min(40 + 35 * len(df), 720),
                             key=f"fluxo_{emp['id']}_{competencia}",
-                            disabled=["Descrição", "Realizado", "Diferença"],
+                            disabled=["Descrição", "Realizado", "Diferença", "% Realizado"],
                             column_config={"chave": None, "tipo": None,
+                                           "Previsto": st.column_config.NumberColumn(format="%.2f"),
                                            "Realizado": st.column_config.NumberColumn(format="%.2f"),
-                                           "Gastos previstos": st.column_config.NumberColumn(format="%.2f"),
-                                           "Diferença": st.column_config.NumberColumn(format="%.2f")})
+                                           "Diferença": st.column_config.NumberColumn(format="%.2f"),
+                                           "% Realizado": st.column_config.NumberColumn(format="%.0f%%")})
         c1, c2 = st.columns([1, 1])
-        if c1.button("💾 Salvar gastos previstos", type="primary"):
-            novos = {r["chave"]: float(r["Gastos previstos"] or 0) for r in ed.to_dict("records")
-                     if r["tipo"] == "conta"}
+        if c1.button("💾 Salvar previsto", type="primary"):
+            novos = {r["chave"]: float(r["Previsto"] or 0) for r in ed.to_dict("records") if r["tipo"] == "conta"}
             emp["config"].setdefault("previstos", {})[competencia] = novos
             db.salvar_config(emp["id"], emp["config"])
             st.rerun()
@@ -511,24 +516,30 @@ def tela_fluxo(emp, cfg, mapa, lancs, base, saldos, ano, mes):
             db.salvar_config(emp["id"], emp["config"])
             st.rerun()
         st.caption("Só as linhas de conta (as mais recuadas) são gravadas; grupos, seções e saldos são recalculados.")
-    dias = fluxo.diario(base, saldos)
+    dias = fluxo.diario(base, saldos, pendentes)
     with abas[1]:
         dfd = pd.DataFrame(dias)
         if dfd.empty:
-            st.info("Sem movimento realizado no mês.")
+            st.info("Sem movimento no mês.")
         else:
             dfd["data"] = pd.to_datetime(dfd["data"]).dt.strftime("%d/%m/%Y")
             st.dataframe(dfd.rename(columns={"data": "Data", "entradas": "Entradas", "saidas": "Saídas",
-                                             "transferencias": "Transferências", "saldo": "Saldo do dia"}),
+                                             "transferencias": "Transferências", "saldo": "Saldo realizado",
+                                             "entradas_prev": "Entradas previstas", "saidas_prev": "Saídas previstas",
+                                             "saldo_projetado": "Saldo projetado"}),
                          hide_index=True, width="stretch", height=min(40 + 35 * len(dfd), 720))
+            st.caption("Previstas = lançamentos ainda em aberto no OMIE, na data de cada um. "
+                       "Saldo projetado = saldo realizado + o que está em aberto.")
     with abas[2]:
-        com_prev = st.checkbox("Incluir a coluna “Gastos previstos” ao lado do realizado", value=True)
+        st.caption("Excel no mesmo padrão visual do modelo de DRE (Aptos Narrow, cabeçalhos azul-marinho, grupos em "
+                   "cinza), com Previsto, Realizado e Diferença puxados por fórmulas da aba BASE FLUXO.")
+        com_prev = st.checkbox("Incluir as colunas Previsto e Diferença ao lado do Realizado", value=True)
         k = f"fluxo_arq_{emp['id']}_{competencia}"
         if st.button("📦 Gerar Excel do Fluxo de Caixa", type="primary"):
             pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), competencia)
             os.makedirs(pasta, exist_ok=True)
             arq = os.path.join(pasta, f"FLUXO DE CAIXA {emp['nome']} {mes:02d}_{ano}.xlsx".replace("/", "-"))
-            fluxo.gerar_excel_fluxo(arq, emp, ano, mes, linhas, dias, base, com_prev)
+            fluxo.gerar_excel_fluxo(arq, emp, ano, mes, linhas, dias, base, pendentes, saldos, com_prev)
             st.session_state[k] = arq
             st.success(f"Arquivo salvo em `{pasta}`")
         if st.session_state.get(k):

@@ -35,6 +35,17 @@ Se o Python não instalar sozinho, instale pelo [python.org](https://www.python.
 5. Aba **3. Saldos**: saldos inicial e final por conta. Vêm do OMIE e podem ser ajustados.
 6. Aba **6. Análise e arquivos**: revise os textos automáticos e clique em *Gerar Excel e PowerPoint*.
 
+## Fluxo de Caixa (previsto x realizado)
+
+No Report, escolha **Fluxo de Caixa** em vez de DRE. O fluxo usa a mesma base puxada do OMIE e a mesma classificação
+da DRE: saldo inicial, entradas e saídas por grupo/conta, transferências, variação e saldo final.
+
+- **Previsto**: sugestão = realizado + lançamentos ainda em aberto no OMIE no mês; pode ser digitado por conta e fica salvo.
+- **Realizado**: movimento do extrato no mês.
+- **Fluxo diário**: saldo realizado e saldo projetado (com o que está em aberto) dia a dia.
+- **Excel** no mesmo visual do modelo de DRE (Aptos Narrow, cabeçalhos azul-marinho, grupos em cinza, seções com
+  borda), com Previsto, Realizado e Diferença puxados por SUMIFS da aba BASE FLUXO, mais SALDOS e FLUXO DIÁRIO.
+
 Os arquivos ficam salvos em `Documentos/Savian DRE/saidas/<empresa>/<AAAA-MM>/` e também podem ser baixados na própria tela.
 
 ## Conferências
@@ -51,6 +62,7 @@ Os arquivos ficam salvos em `Documentos/Savian DRE/saidas/<empresa>/<AAAA-MM>/` 
 | `core/importador.py` | Leitura da planilha exportada do OMIE |
 | `core/plano.py` | Plano padrão da DRE e classificação automática das categorias |
 | `core/dre.py` | Base classificada, DRE, quadros e conferências |
+| `core/fluxo.py` | Fluxo de caixa previsto x realizado e Excel do fluxo |
 | `core/excel.py` | Geração do Excel |
 | `core/apresentacao.py` / `core/analise.py` | PowerPoint e textos da análise |
 | `testes/gerar_exemplos.py` | Gera exemplos a partir dos arquivos-modelo |
