@@ -17,6 +17,7 @@ CONFIG_PADRAO = {
     "ordem_colunas": [],
     "contas_ativas": [],            # nCodCC; vazio = todas
     "grupos": None,                 # None = plano padrão
+    "criar_grupos": True,           # categoria fora do modelo vira um grupo novo no DRE
     "recebimentos_por_cliente": False,
     "mostrar_grupos_vazios": False,
     "observacoes_mes": {},          # 'AAAA-MM' -> texto
@@ -79,6 +80,28 @@ def salvar_config(eid, config):
 def salvar_mapa(eid, mapa):
     with _con() as c:
         c.execute("UPDATE empresas SET mapa=? WHERE id=?", (json.dumps(mapa, ensure_ascii=False), eid))
+
+
+def so_digitos(txt):
+    return "".join(ch for ch in str(txt or "") if ch.isdigit())
+
+
+def cnpjs(txt):
+    """CNPJs (só dígitos) de um campo com um por linha (aceita também vírgula ou ponto e vírgula)."""
+    partes = str(txt or "").replace(";", "\n").replace(",", "\n").splitlines()
+    return [so_digitos(p) for p in partes if so_digitos(p)]
+
+
+def cnpj_em_uso(lista, ignorar_id=None):
+    """{cnpj: nome da empresa} para os CNPJs da lista já cadastrados em outra empresa ativa."""
+    lista = set(lista)
+    usados = {}
+    for e in listar():
+        if e["id"] != ignorar_id:
+            for c in cnpjs(e["cnpj"]):
+                if c in lista:
+                    usados[c] = e["nome"]
+    return usados
 
 
 def excluir(eid):

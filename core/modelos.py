@@ -135,12 +135,121 @@ _INDUSTRIA_CONTAS = [
     ("Compra de Máquinas", "090200"), ("Empréstimos", "090200"),
 ]
 
+_NOTURNA_GRUPOS = [
+    ("010100", "BILHETERIA (INGRESSOS E LISTAS)", "ENTRADAS", "recebimentos"),
+    ("010200", "BAR, BEBIDAS E ALIMENTOS", "ENTRADAS", "recebimentos"),
+    ("010300", "EVENTOS PRIVADOS E LOCAÇÃO DO ESPAÇO", "ENTRADAS", "recebimentos"),
+    ("010400", "PATROCÍNIOS E PARCERIAS", "ENTRADAS", "recebimentos"),
+    ("010500", "OUTRAS ENTRADAS OPERACIONAIS", "ENTRADAS", "recebimentos"),
+    ("020100", "IMPOSTOS", "DEDUCOES", ""),
+    ("020200", "TAXAS DE TICKETERIA E VENDAS ONLINE", "DEDUCOES", ""),
+    ("040100", "ATRAÇÕES (CACHÊS DE ARTISTAS E DJS)", "CUSTOS", "fornecedores"),
+    ("040200", "PRODUÇÃO (SOM, LUZ, PALCO E CENOGRAFIA)", "CUSTOS", "fornecedores"),
+    ("040300", "EQUIPE DA NOITE (SEGURANÇA, BAR, PORTARIA, LIMPEZA)", "CUSTOS", "funcionarios"),
+    ("040400", "BEBIDAS E INSUMOS DO BAR", "CUSTOS", "fornecedores"),
+    ("040500", "ENCARGOS E BENEFÍCIOS", "CUSTOS", ""),
+    ("040600", "DIREITOS AUTORAIS (ECAD)", "CUSTOS", ""),
+    ("040700", "DIVULGAÇÃO DOS EVENTOS", "CUSTOS", "fornecedores"),
+    ("050100", "PESSOAL ADMINISTRATIVO", "DESPESAS", "funcionarios"),
+    ("060100", "CONTABILIDADE", "DESPESAS", ""),
+    ("060200", "SISTEMAS E TECNOLOGIA", "DESPESAS", ""),
+    ("060300", "MANUTENÇÃO DA CASA", "DESPESAS", "fornecedores"),
+    ("060400", "ADMINISTRATIVO", "DESPESAS", ""),
+    ("060500", "OCUPAÇÃO (ALUGUEL, CONDOMÍNIO, UTILIDADES)", "DESPESAS", ""),
+    ("060600", "JURÍDICO, ALVARÁS E LICENÇAS", "DESPESAS", ""),
+    ("060700", "SÓCIOS", "DESPESAS", ""),
+    tuple(A_CLASSIFICAR),
+    ("080100", "RECEITAS FINANCEIRAS", "FINANCEIRO", ""),
+    ("080200", "DESPESAS FINANCEIRAS E TAXAS DE CARTÃO", "FINANCEIRO", ""),
+    ("090100", "ENTRADAS NÃO OPERACIONAIS", "NAO_OPERACIONAL", ""),
+    ("090200", "SAÍDAS NÃO OPERACIONAIS", "NAO_OPERACIONAL", ""),
+]
+_NOTURNA_CONTAS = [
+    ("Ingressos", "010100"), ("Bilheteria", "010100"), ("Portaria", "010100"), ("Lista", "010100"),
+    ("Sympla", "010100"), ("Ingresse", "010100"), ("Shotgun", "010100"), ("Camarote", "010100"),
+    ("Bar", "010200"), ("Vendas Bar", "010200"), ("Consumação", "010200"), ("Cozinha", "010200"),
+    ("Evento Privado", "010300"), ("Locação do Espaço", "010300"), ("Aniversário", "010300"),
+    ("Patrocínio", "010400"), ("Parceria", "010400"),
+    ("Simples Nacional", "020100"), ("ISS", "020100"), ("ICMS", "020100"),
+    ("Taxa Ticketeria", "020200"), ("Taxa Sympla", "020200"), ("Taxa de Conveniência", "020200"),
+    ("Cachê", "040100"), ("Cachê Artista", "040100"), ("DJ", "040100"), ("Atração", "040100"),
+    ("Show", "040100"), ("Banda", "040100"), ("Som", "040200"), ("Iluminação", "040200"),
+    ("Luz", "040200"), ("Palco", "040200"), ("Cenografia", "040200"), ("Produção", "040200"),
+    ("Técnico de Som", "040200"), ("Segurança", "040300"), ("Bartender", "040300"), ("Garçons", "040300"),
+    ("Hostess", "040300"), ("Freelancers", "040300"), ("Diaristas", "040300"), ("Limpeza", "040300"),
+    ("Salários", "040300"), ("Gelo", "040400"), ("Bebidas", "040400"), ("Cerveja", "040400"),
+    ("Destilados", "040400"), ("Insumos Bar", "040400"), ("Descartáveis", "040400"),
+    ("Fornecedor de Bebidas", "040400"), ("FGTS", "040500"), ("INSS", "040500"), ("Vale Transporte", "040500"),
+    ("Vale Refeição", "040500"), ("ECAD", "040600"), ("Direitos Autorais", "040600"), ("Divulgação", "040700"),
+    ("Marketing", "040700"), ("Tráfego Pago", "040700"), ("Promoters", "040700"), ("Fotógrafo", "040700"),
+    ("Influenciadores", "040700"), ("Contabilidade", "060100"), ("Sistemas", "060200"),
+    ("Manutenção", "060300"), ("Telefonia", "060400"), ("Aluguel", "060500"), ("Energia Elétrica", "060500"),
+    ("Água", "060500"), ("Alvará", "060600"), ("Licenças", "060600"), ("Advogados", "060600"),
+    ("Bombeiros", "060600"), ("Pró-Labore", "060700"), ("Taxa de Cartão", "080200"),
+    ("Tarifas Bancárias", "080200"), ("Antecipação de Recebíveis", "080200"),
+]
+
+_ARTISTAS_GRUPOS = [
+    ("010100", "CACHÊS DE SHOWS E APRESENTAÇÕES", "ENTRADAS", "recebimentos"),
+    ("010200", "DIREITOS AUTORAIS, STREAMING E ROYALTIES", "ENTRADAS", "recebimentos"),
+    ("010300", "PUBLICIDADE, PATROCÍNIOS E PUBLIS", "ENTRADAS", "recebimentos"),
+    ("010400", "PRODUTOS E MERCHANDISING", "ENTRADAS", "recebimentos"),
+    ("010500", "OUTRAS ENTRADAS OPERACIONAIS", "ENTRADAS", "recebimentos"),
+    ("020100", "IMPOSTOS", "DEDUCOES", ""),
+    ("040100", "REPASSES A ARTISTAS", "CUSTOS", "fornecedores"),
+    ("040200", "BANDA E MÚSICOS", "CUSTOS", "fornecedores"),
+    ("040300", "EQUIPE TÉCNICA E PRODUÇÃO DE SHOWS", "CUSTOS", "fornecedores"),
+    ("040400", "LOGÍSTICA DE TURNÊ (PASSAGENS, HOSPEDAGEM, TRANSPORTE)", "CUSTOS", "fornecedores"),
+    ("040500", "LOCAÇÃO DE EQUIPAMENTOS", "CUSTOS", "fornecedores"),
+    ("040600", "PRODUÇÃO MUSICAL E AUDIOVISUAL", "CUSTOS", "fornecedores"),
+    ("040700", "MARKETING E DIVULGAÇÃO", "CUSTOS", "fornecedores"),
+    ("040800", "COMISSÕES E AGENCIAMENTO", "CUSTOS", ""),
+    ("050100", "PESSOAL", "DESPESAS", "funcionarios"),
+    ("050200", "ENCARGOS E BENEFÍCIOS", "DESPESAS", ""),
+    ("060100", "CONTABILIDADE", "DESPESAS", ""),
+    ("060200", "SISTEMAS E TECNOLOGIA", "DESPESAS", ""),
+    ("060400", "ADMINISTRATIVO", "DESPESAS", ""),
+    ("060500", "OCUPAÇÃO (ESCRITÓRIO E ESTÚDIO)", "DESPESAS", ""),
+    ("060600", "JURÍDICO E REGISTROS (OBRAS, MARCAS)", "DESPESAS", ""),
+    ("060700", "SÓCIOS", "DESPESAS", ""),
+    tuple(A_CLASSIFICAR),
+    ("080100", "RECEITAS FINANCEIRAS", "FINANCEIRO", ""),
+    ("080200", "DESPESAS FINANCEIRAS", "FINANCEIRO", ""),
+    ("090100", "ENTRADAS NÃO OPERACIONAIS", "NAO_OPERACIONAL", ""),
+    ("090200", "SAÍDAS NÃO OPERACIONAIS", "NAO_OPERACIONAL", ""),
+]
+_ARTISTAS_CONTAS = [
+    ("Show", "010100"), ("Shows", "010100"), ("Cachê", "010100"), ("Apresentação", "010100"),
+    ("Contratante", "010100"), ("Sinal de Show", "010100"), ("Direitos Autorais", "010200"),
+    ("Streaming", "010200"), ("Royalties", "010200"), ("Spotify", "010200"), ("ECAD", "010200"),
+    ("Distribuidora", "010200"), ("Publicidade", "010300"), ("Publi", "010300"), ("Patrocínio", "010300"),
+    ("Merchandising", "010400"), ("Merch", "010400"), ("Produtos", "010400"),
+    ("Simples Nacional", "020100"), ("ISS", "020100"), ("IRRF", "020100"),
+    ("Repasse Artista", "040100"), ("Repasse", "040100"), ("Músicos", "040200"), ("Banda", "040200"),
+    ("Backing Vocal", "040200"), ("Roadie", "040300"), ("Técnico de Som", "040300"), ("Produção", "040300"),
+    ("Produtor", "040300"), ("Passagens", "040400"), ("Passagem Aérea", "040400"), ("Hospedagem", "040400"),
+    ("Hotel", "040400"), ("Transporte", "040400"), ("Van", "040400"), ("Alimentação", "040400"),
+    ("Diárias", "040400"), ("Combustível", "040400"), ("Locação de Equipamentos", "040500"),
+    ("Backline", "040500"), ("Estúdio", "040600"), ("Gravação", "040600"), ("Mixagem", "040600"),
+    ("Videoclipe", "040600"), ("Fotografia", "040600"), ("Marketing", "040700"), ("Divulgação", "040700"),
+    ("Tráfego Pago", "040700"), ("Assessoria de Imprensa", "040700"), ("Comissão", "040800"),
+    ("Agenciamento", "040800"), ("Empresário", "040800"), ("Salários", "050100"), ("FGTS", "050200"),
+    ("INSS", "050200"), ("Contabilidade", "060100"), ("Sistemas", "060200"), ("Telefonia", "060400"),
+    ("Aluguel", "060500"), ("Advogados", "060600"), ("Registro de Obras", "060600"), ("Pró-Labore", "060700"),
+    ("Tarifas Bancárias", "080200"),
+]
+
 MODELOS_PRONTOS = {
-    "Serviços (padrão Savian)": {"grupos": [list(g) for g in GRUPOS_PADRAO], "contas": _SERVICOS_CONTAS},
+    "Facilities (padrão Savian / HAGILI)": {"grupos": [list(g) for g in GRUPOS_PADRAO], "contas": _SERVICOS_CONTAS},
+    "Casa noturna / Balada (ex.: Madame Satã)": {"grupos": [list(g) for g in _NOTURNA_GRUPOS],
+                                                 "contas": _NOTURNA_CONTAS},
+    "Promoção e agenciamento de artistas": {"grupos": [list(g) for g in _ARTISTAS_GRUPOS], "contas": _ARTISTAS_CONTAS},
     "Comércio / Varejo": {"grupos": [list(g) for g in _COMERCIO_GRUPOS], "contas": _COMERCIO_CONTAS},
     "Eventos e Festas": {"grupos": [list(g) for g in _EVENTOS_GRUPOS], "contas": _EVENTOS_CONTAS},
     "Indústria": {"grupos": [list(g) for g in _INDUSTRIA_GRUPOS], "contas": _INDUSTRIA_CONTAS},
 }
+MODELO_PADRAO = "Facilities (padrão Savian / HAGILI)"
+NOMES_ANTIGOS = {"Serviços (padrão Savian) (pronto)": MODELO_PADRAO + " (pronto)"}
 
 
 def completar_grupos(grupos):
@@ -181,7 +290,7 @@ def _secao_do_titulo(txt):
     return None
 
 
-def _relatorio_sugerido(nome, secao):
+def relatorio_sugerido(nome, secao):
     t = norm(nome)
     if secao == "ENTRADAS":
         return "recebimentos"
@@ -212,7 +321,7 @@ def ler_excel_modelo(arquivo):
                     cod, nome = m.group(1), m.group(2)
                     if cod.endswith("00"):
                         sec = secao or _SECAO_POR_PREFIXO.get(cod[:2], "DESPESAS")
-                        grupos[cod] = [cod, nome.upper(), sec, rel or _relatorio_sugerido(nome, sec)]
+                        grupos[cod] = [cod, nome.upper(), sec, rel or relatorio_sugerido(nome, sec)]
                     else:
                         contas.append([nome, cod[:4] + "00"])
                     break
@@ -225,7 +334,7 @@ def ler_excel_modelo(arquivo):
             for nome, cod in contas:
                 if cod not in grupos:
                     sec = _SECAO_POR_PREFIXO.get(cod[:2], "DESPESAS")
-                    grupos[cod] = [cod, nome.upper(), sec, _relatorio_sugerido(nome, sec)]
+                    grupos[cod] = [cod, nome.upper(), sec, relatorio_sugerido(nome, sec)]
             return completar_grupos(grupos.values()), contas
     raise ValueError("Não encontrei linhas no formato '040100-NOME DO GRUPO' em nenhuma aba do Excel. "
                      "Use um report de fechamento da Savian ou baixe o modelo em Excel aqui no sistema, "
@@ -270,9 +379,19 @@ def exportar_excel_modelo(caminho_ou_buffer, nome, grupos, contas):
 
 # ---------------------------------------------------------------- aplicação na empresa
 def sugerir_pelo_modelo(categoria, cfg):
-    """Grupo e nome de conta do modelo da empresa para uma categoria do OMIE (ou None)."""
+    """Grupo e nome de conta do modelo da empresa para uma categoria do OMIE (ou None).
+
+    Primeiro o nome exato; depois a conta do modelo cujo nome aparece como palavra(s) na categoria
+    (ex.: "Cachê DJ Fulano" -> grupo da conta "Cachê"), mantendo o nome da categoria como conta."""
     t = norm(categoria)
-    for nome, grupo in cfg.get("contas_modelo") or []:
+    contas = cfg.get("contas_modelo") or []
+    for nome, grupo in contas:
         if norm(nome) == t:
             return grupo, nome
+    codigos = {g[0] for g in cfg.get("grupos") or []}
+    achados = [(len(norm(nome)), grupo) for nome, grupo in contas
+               if len(norm(nome)) >= 2 and re.search(rf"\b{re.escape(norm(nome))}\b", t)
+               and (not codigos or grupo in codigos)]
+    if achados:
+        return max(achados)[1], str(categoria).strip()
     return None

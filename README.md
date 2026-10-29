@@ -27,6 +27,11 @@ Se o Python não instalar sozinho, instale pelo [python.org](https://www.python.
 1. **Empresas**: cadastre nome, CNPJ(s), **App Key** e **App Secret** do OMIE e clique em *Testar conexão*.
    Escolha como as colunas da DRE serão divididas: **por conta corrente** (ex.: MS Festas), **por projeto**
    (ex.: Hagili) ou só o total.
+   Todos os campos são obrigatórios e o mesmo CNPJ não pode ser cadastrado em duas empresas. Na criação, escolha o
+   **ramo** (modelo de DRE): Facilities (modelo HAGILI), Casa noturna / Balada, Promoção de artistas, Eventos,
+   Comércio ou Indústria. Dá para trocar depois em *Modelo de DRE*. Categorias do OMIE que não existem no modelo
+   viram grupos novos no mesmo padrão de códigos (ex.: 060800-PIROTECNIA); isso pode ser desligado por empresa.
+   Para excluir uma empresa: botão *Excluir empresa* no cadastro ou o **✕** ao lado do nome no Report.
 2. **Fechamento do mês**: escolha empresa, mês e ano e clique em *Puxar dados e montar DRE*.
    Sem API, use a opção *Planilha exportada do OMIE* (Finanças › Movimentação da Conta Corrente › Exportar).
 3. Aba **1. Classificação**: confira em qual grupo da DRE cada categoria do OMIE caiu. Na primeira vez é uma sugestão
