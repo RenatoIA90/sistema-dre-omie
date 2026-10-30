@@ -12,7 +12,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from core import analise, apresentacao, db, dre, excel, fluxo, modelos
+from core import analise, apresentacao, db, dre, excel, fluxo, modelos, recebimento
 from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
@@ -24,6 +24,7 @@ SECOES_OPC = [s for s, _ in SECOES] + ["FORA"]
 REL_OPC = ["", "recebimentos", "fornecedores", "funcionarios", "transferencias"]
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MIME_PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+REL_RECEB = "Relatório Recebimento"
 
 AZUL = "#213A6B"
 st.markdown(f"""
@@ -481,21 +482,29 @@ def tela_report():
     por_id = {e["id"]: e for e in empresas}
 
     with st.container(key="cartao_filtros"):
-        tipo = st.segmented_control("Relatório", ["DRE", "Fluxo de Caixa"], default="DRE", key="rep_tipo") or "DRE"
-        c1, cx, c2, c3, c4, c5 = st.columns([4, .45, 1.1, 1.1, 2, 1.8], vertical_alignment="bottom")
-        emp = por_id[c1.selectbox("Empresa", ids, format_func=lambda i: por_id[i]["nome"], key="rep_emp")]
-        if cx.button("✕", key="xemp_report", help=f"Excluir a empresa {emp['nome']}", width="stretch"):
-            dialogo_excluir(emp)
-        mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda m: f"{m:02d}", key="rep_mes")
-        ano = c3.number_input("Ano", 2015, 2100, key="rep_ano")
-        fonte = c4.selectbox("Fonte", ["API OMIE", "Planilha exportada do OMIE"])
-        puxar = c5.button("Montar DRE" if tipo == "DRE" else "Montar Fluxo", type="primary", width="stretch")
-        arquivo = None
-        sel = []
-        if fonte.startswith("Planilha"):
-            arquivo = st.file_uploader("Finanças › Movimentação da Conta Corrente › Exportar para Excel", type=["xlsx"])
+        tipo = st.segmented_control("Relatório", ["DRE", "Fluxo de Caixa", REL_RECEB], default="DRE",
+                                    key="rep_tipo") or "DRE"
+        if tipo == REL_RECEB:
+            filtros = filtros_recebimento(por_id, ids)
         else:
-            sel = seletor_contas(emp)
+            c1, cx, c2, c3, c4, c5 = st.columns([4, .45, 1.1, 1.1, 2, 1.8], vertical_alignment="bottom")
+            emp = por_id[c1.selectbox("Empresa", ids, format_func=lambda i: por_id[i]["nome"], key="rep_emp")]
+            if cx.button("✕", key="xemp_report", help=f"Excluir a empresa {emp['nome']}", width="stretch"):
+                dialogo_excluir(emp)
+            mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda m: f"{m:02d}", key="rep_mes")
+            ano = c3.number_input("Ano", 2015, 2100, key="rep_ano")
+            fonte = c4.selectbox("Fonte", ["API OMIE", "Planilha exportada do OMIE"])
+            puxar = c5.button("Montar DRE" if tipo == "DRE" else "Montar Fluxo", type="primary", width="stretch")
+            arquivo = None
+            sel = []
+            if fonte.startswith("Planilha"):
+                arquivo = st.file_uploader("Finanças › Movimentação da Conta Corrente › Exportar para Excel",
+                                           type=["xlsx"])
+            else:
+                sel = seletor_contas(emp)
+    if tipo == REL_RECEB:
+        tela_recebimento(*filtros)
+        return
     puxar = puxar or st.session_state.pop("rep_auto", False)
 
     chave = f"dados_{emp['id']}_{ano}_{mes}_{'-'.join(sorted(sel))}"
@@ -678,6 +687,96 @@ def tela_fluxo(emp, cfg, mapa, lancs, base, saldos, ano, mes):
                                    file_name=os.path.basename(st.session_state[k]), mime=MIME_XLSX)
     st.divider()
     ultimas_geracoes()
+
+
+def filtros_recebimento(por_id, ids):
+    """Linha de filtros do Relatório Recebimento: empresa, período da previsão de recebimento e fonte."""
+    hoje = date.today()
+    st.session_state.setdefault("rec_ini", date(hoje.year - (hoje.month == 1), hoje.month - 1 or 12, 1))
+    st.session_state.setdefault("rec_fim", hoje)
+    c1, cx, c2, c3, c4, c5 = st.columns([4, .45, 1.3, 1.3, 2, 1.8], vertical_alignment="bottom")
+    emp = por_id[c1.selectbox("Empresa", ids, format_func=lambda i: por_id[i]["nome"], key="rep_emp")]
+    if cx.button("✕", key="xemp_report", help=f"Excluir a empresa {emp['nome']}", width="stretch"):
+        dialogo_excluir(emp)
+    ini = c2.date_input("Previsão de", key="rec_ini", format="DD/MM/YYYY")
+    fim = c3.date_input("até", key="rec_fim", format="DD/MM/YYYY")
+    fonte = c4.selectbox("Fonte", ["API OMIE", "Planilha exportada do OMIE"], key="rec_fonte")
+    puxar = c5.button("Montar Relatório", type="primary", width="stretch")
+    arquivo = None
+    if fonte.startswith("Planilha"):
+        arquivo = st.file_uploader("Finanças › Contas a Receber › Exportar para Excel", type=["xlsx"],
+                                   key="rec_arquivo")
+    st.caption("Mesmo filtro da planilha modelo: **recebidos** com previsão dentro do período e tudo o que está "
+               "**em aberto** (a vencer, vence hoje, atrasado, recebido parcialmente) com previsão até o fim do "
+               "período, inclusive atrasados de meses anteriores. Cancelados ficam de fora.")
+    return emp, ini, fim, fonte, arquivo, puxar
+
+
+def tela_recebimento(emp, ini, fim, fonte, arquivo, puxar):
+    chave = f"receb_{emp['id']}_{fonte}"
+    if puxar:
+        try:
+            if fonte == "API OMIE":
+                if not emp["app_key"] or not emp["app_secret"]:
+                    st.error("Cadastre a App Key e o App Secret desta empresa.")
+                    return
+                log = []
+                barra = st.progress(0.0, "Conectando ao OMIE...")
+                cli = OmieCliente(emp["app_key"], emp["app_secret"], log=log)
+                titulos = recebimento.baixar_titulos(cli, progresso=lambda p, t: barra.progress(p, t))
+                pasta = os.path.join(db.PASTA_DADOS, "logs")
+                os.makedirs(pasta, exist_ok=True)
+                salvar_log(log, os.path.join(pasta, f"receber_{emp['id']}_{date.today():%Y_%m_%d}.json"))
+            else:
+                if not arquivo:
+                    st.error("Envie a planilha exportada do OMIE.")
+                    return
+                titulos = recebimento.ler_exportacao(arquivo)
+            st.session_state[chave] = titulos
+        except (OmieErro, ValueError) as e:
+            st.error(str(e))
+            return
+
+    titulos = st.session_state.get(chave)
+    if titulos is None:
+        st.info("Escolha a empresa e o período e clique em **Montar Relatório** para puxar as contas a receber "
+                "do OMIE.")
+        return
+    if ini > fim:
+        st.error("A data inicial é maior que a final.")
+        return
+    situacoes = st.multiselect("Situações", recebimento.SITUACOES, default=recebimento.SITUACOES,
+                               key=f"rec_sit_{emp['id']}")
+    sel = recebimento.filtrar(titulos, ini, fim, situacoes)
+    res = recebimento.resumo(sel)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Títulos", res["titulos"])
+    m2.metric("Recebido no período", brl(res["recebido"]))
+    m3.metric("A receber", brl(res["a_receber"]))
+    m4.metric("Atrasado", brl(res["atrasado"]))
+    m5.metric("A vencer", brl(res["a_vencer"]))
+
+    df = pd.DataFrame(sel, columns=[k for k, _, _ in recebimento.COLUNAS])
+    for k in recebimento.DATAS:
+        df[k] = pd.to_datetime(df[k])
+    cfg_cols = {k: (st.column_config.DateColumn(t, format="DD/MM/YYYY") if k in recebimento.DATAS
+                    else st.column_config.NumberColumn(t, format="%.2f") if k in recebimento.VALORES
+                    else st.column_config.TextColumn(t))
+                for k, t, _ in recebimento.COLUNAS}
+    st.dataframe(df, hide_index=True, width="stretch", height=min(40 + 35 * len(df), 720), column_config=cfg_cols)
+
+    k = f"rec_arq_{emp['id']}"
+    if st.button("📦 Gerar Excel do Relatório de Recebimento", type="primary", disabled=not sel):
+        pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), f"{fim:%Y-%m}")
+        os.makedirs(pasta, exist_ok=True)
+        arq = os.path.join(pasta, f"RELATORIO DE RECEBIMENTO {emp['nome']} {fim:%d_%m_%Y}.xlsx".replace("/", "-"))
+        recebimento.gerar_excel(arq, emp, ini, fim, sel)
+        st.session_state[k] = arq
+        st.success(f"Arquivo salvo em `{pasta}`")
+    if st.session_state.get(k) and os.path.exists(st.session_state[k]):
+        with open(st.session_state[k], "rb") as f:
+            st.download_button("⬇️ Baixar Excel do Relatório de Recebimento", f.read(),
+                               file_name=os.path.basename(st.session_state[k]), mime=MIME_XLSX)
 
 
 def seletor_contas(emp):
