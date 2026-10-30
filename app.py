@@ -930,7 +930,6 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes):
     pos = c1.text_area("Pontos positivos", textos["positivos"], height=200, key=k + "p")
     ate = c2.text_area("Pontos de atenção", textos["atencao"], height=200, key=k + "a")
     concl = st.text_area("Conclusão", textos["conclusao"], height=80, key=k + "c")
-    detal = st.checkbox("Incluir slide com a DRE detalhada (contas de nível 3)", value=True)
 
     if st.button("📦 Gerar Excel e PowerPoint", type="primary"):
         pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), f"{ano}-{mes:02d}")
@@ -942,7 +941,7 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes):
             excel.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg)
             apresentacao.gerar_pptx(pptx, emp, ano, mes, base, d, saldos, cfg,
                                     {"titulo": titulo, "fechamento": fech, "positivos": pos, "atencao": ate,
-                                     "conclusao": concl}, incluir_detalhada=detal)
+                                     "conclusao": concl})
         st.session_state[k + "arqs"] = (xlsx, pptx)
         db.registrar_geracao(emp["id"], ano, mes, getpass.getuser(), xlsx, pptx)
         st.success(f"Arquivos salvos em `{pasta}`")
