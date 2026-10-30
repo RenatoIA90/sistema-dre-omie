@@ -690,29 +690,25 @@ def tela_fluxo(emp, cfg, mapa, lancs, base, saldos, ano, mes):
 
 
 def filtros_recebimento(por_id, ids):
-    """Linha de filtros do Relatório Recebimento: empresa, período da previsão de recebimento e fonte."""
-    hoje = date.today()
-    st.session_state.setdefault("rec_ini", date(hoje.year - (hoje.month == 1), hoje.month - 1 or 12, 1))
-    st.session_state.setdefault("rec_fim", hoje)
-    c1, cx, c2, c3, c4, c5 = st.columns([4, .45, 1.3, 1.3, 2, 1.8], vertical_alignment="bottom")
+    """Linha de filtros do Relatório Recebimento: empresa e fonte (a base vem inteira, sem período)."""
+    c1, cx, c4, c5 = st.columns([4, .45, 2, 1.8], vertical_alignment="bottom")
     emp = por_id[c1.selectbox("Empresa", ids, format_func=lambda i: por_id[i]["nome"], key="rep_emp")]
     if cx.button("✕", key="xemp_report", help=f"Excluir a empresa {emp['nome']}", width="stretch"):
         dialogo_excluir(emp)
-    ini = c2.date_input("Previsão de", key="rec_ini", format="DD/MM/YYYY")
-    fim = c3.date_input("até", key="rec_fim", format="DD/MM/YYYY")
     fonte = c4.selectbox("Fonte", ["API OMIE", "Planilha exportada do OMIE"], key="rec_fonte")
     puxar = c5.button("Montar Relatório", type="primary", width="stretch")
     arquivo = None
     if fonte.startswith("Planilha"):
         arquivo = st.file_uploader("Finanças › Contas a Receber › Exportar para Excel", type=["xlsx"],
                                    key="rec_arquivo")
-    st.caption("Mesmo filtro da planilha modelo: **recebidos** com previsão dentro do período e tudo o que está "
-               "**em aberto** (a vencer, vence hoje, atrasado, recebido parcialmente) com previsão até o fim do "
-               "período, inclusive atrasados de meses anteriores. Cancelados ficam de fora.")
-    return emp, ini, fim, fonte, arquivo, puxar
+    st.caption(f"Puxa todo o contas a receber da empresa, desde o início no OMIE. No relatório entra tudo o que "
+               f"está **em aberto** (a vencer, vence hoje, atrasado, recebido parcialmente) e os **recebidos** "
+               f"só dos dois últimos meses (desde {recebimento.inicio_recebidos():%d/%m/%Y}). "
+               f"Cancelados ficam de fora.")
+    return emp, fonte, arquivo, puxar
 
 
-def tela_recebimento(emp, ini, fim, fonte, arquivo, puxar):
+def tela_recebimento(emp, fonte, arquivo, puxar):
     chave = f"receb_{emp['id']}_{fonte}"
     if puxar:
         try:
@@ -739,19 +735,15 @@ def tela_recebimento(emp, ini, fim, fonte, arquivo, puxar):
 
     titulos = st.session_state.get(chave)
     if titulos is None:
-        st.info("Escolha a empresa e o período e clique em **Montar Relatório** para puxar as contas a receber "
-                "do OMIE.")
-        return
-    if ini > fim:
-        st.error("A data inicial é maior que a final.")
+        st.info("Escolha a empresa e clique em **Montar Relatório** para puxar as contas a receber do OMIE.")
         return
     situacoes = st.multiselect("Situações", recebimento.SITUACOES, default=recebimento.SITUACOES,
                                key=f"rec_sit_{emp['id']}")
-    sel = recebimento.filtrar(titulos, ini, fim, situacoes)
+    sel = recebimento.filtrar(titulos, situacoes)
     res = recebimento.resumo(sel)
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Títulos", res["titulos"])
-    m2.metric("Recebido no período", brl(res["recebido"]))
+    m2.metric("Recebido (2 últimos meses)", brl(res["recebido"]))
     m3.metric("A receber", brl(res["a_receber"]))
     m4.metric("Atrasado", brl(res["atrasado"]))
     m5.metric("A vencer", brl(res["a_vencer"]))
@@ -767,10 +759,11 @@ def tela_recebimento(emp, ini, fim, fonte, arquivo, puxar):
 
     k = f"rec_arq_{emp['id']}"
     if st.button("📦 Gerar Excel do Relatório de Recebimento", type="primary", disabled=not sel):
-        pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), f"{fim:%Y-%m}")
+        hoje = date.today()
+        pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), f"{hoje:%Y-%m}")
         os.makedirs(pasta, exist_ok=True)
-        arq = os.path.join(pasta, f"RELATORIO DE RECEBIMENTO {emp['nome']} {fim:%d_%m_%Y}.xlsx".replace("/", "-"))
-        recebimento.gerar_excel(arq, emp, ini, fim, sel)
+        arq = os.path.join(pasta, f"RELATORIO DE RECEBIMENTO {emp['nome']} {hoje:%d_%m_%Y}.xlsx".replace("/", "-"))
+        recebimento.gerar_excel(arq, emp, sel)
         st.session_state[k] = arq
         st.success(f"Arquivo salvo em `{pasta}`")
     if st.session_state.get(k) and os.path.exists(st.session_state[k]):

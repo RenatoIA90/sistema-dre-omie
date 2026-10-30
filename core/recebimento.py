@@ -1,13 +1,12 @@
 """Relatório de recebimento (Finanças › Contas a Receber do OMIE).
 
-Segue a planilha modelo RELATORIO DE RECEBIMENTO LETS: as 11 colunas que ela mantém da exportação do
-OMIE e o mesmo filtro, que é:
-  - títulos recebidos com previsão de recebimento dentro do período;
-  - títulos em aberto (a vencer, vence hoje, atrasados e recebidos parcialmente) com previsão até o fim do
-    período, inclusive os atrasados de meses anteriores;
+Segue a planilha modelo RELATORIO DE RECEBIMENTO LETS (as 11 colunas que ela mantém da exportação do OMIE).
+Puxa toda a base de contas a receber da empresa, desde o início no OMIE, e no relatório entra:
+  - tudo o que está em aberto (a vencer, vence hoje, atrasado e recebido parcialmente), de qualquer data;
+  - os recebidos apenas dos dois últimos meses (mês atual e anterior), pela data do recebimento;
   - cancelados ficam de fora.
-Ordem: situação (A vencer, Vence hoje, Atrasado, Recebido, Recebido Parcialmente) e previsão da mais recente
-para a mais antiga.
+Ordem: situação (A vencer, Vence hoje, Atrasado, Recebido Parcialmente, Recebido) e previsão da mais
+recente para a mais antiga.
 
 A base vem da API (financas/mf ListarMovimentos para situação e valores, ListarContasReceber para NF,
 retenções e observação, cadastro de clientes para o nome fantasia) ou da planilha exportada do OMIE.
@@ -26,7 +25,7 @@ from .omie import _data, _num, _pega
 
 A_VENCER, VENCE_HOJE, ATRASADO = "A vencer", "Vence hoje", "Atrasado"
 RECEBIDO, PARCIAL = "Recebido", "Recebido Parcialmente"
-SITUACOES = [A_VENCER, VENCE_HOJE, ATRASADO, RECEBIDO, PARCIAL]
+SITUACOES = [A_VENCER, VENCE_HOJE, ATRASADO, PARCIAL, RECEBIDO]
 EM_ABERTO = {A_VENCER, VENCE_HOJE, ATRASADO, PARCIAL}
 
 # (chave, cabeçalho, largura) na ordem da planilha modelo
@@ -182,16 +181,22 @@ def ler_exportacao(arquivo):
     return titulos
 
 
-def filtrar(titulos, inicio, fim, situacoes=None):
-    """Mesmo filtro e ordem da planilha modelo."""
+def inicio_recebidos(hoje=None):
+    """Primeiro dia do mês anterior: os recebidos entram só a partir daqui (dois últimos meses)."""
+    hoje = hoje or date.today()
+    return date(hoje.year - (hoje.month == 1), hoje.month - 1 or 12, 1)
+
+
+def filtrar(titulos, situacoes=None, hoje=None):
+    """Tudo em aberto + recebidos dos dois últimos meses, na ordem do relatório."""
+    desde = inicio_recebidos(hoje)
     sel = []
     for t in titulos:
         if situacoes and t["situacao"] not in situacoes:
             continue
-        p = t["previsao"]
-        if p is None or p > fim:
+        if t["previsao"] is None:
             continue
-        if t["situacao"] not in EM_ABERTO and p < inicio:
+        if t["situacao"] not in EM_ABERTO and (t["ultimo_recebimento"] or t["previsao"]) < desde:
             continue
         sel.append(t)
     ordem = {s: i for i, s in enumerate(SITUACOES)}
@@ -210,7 +215,7 @@ def resumo(titulos):
     }
 
 
-def gerar_excel(caminho, empresa, inicio, fim, titulos):
+def gerar_excel(caminho, empresa, titulos, hoje=None):
     """Excel com a formatação da planilha modelo (aba financas, cabeçalho na linha 3, filtro e painel congelado)."""
     wb = Workbook()
     ws = wb.active
@@ -232,8 +237,9 @@ def gerar_excel(caminho, empresa, inicio, fim, titulos):
     c.font = Font(name="Calibri", size=16, bold=True, color=AZUL_CAB)
     c.alignment = Alignment(horizontal="left", vertical="center", indent=14)
     c = ws["B2"]
-    c.value = (f"Recebidos com previsão de {inicio:%d/%m/%Y} a {fim:%d/%m/%Y} · em aberto com previsão até "
-               f"{fim:%d/%m/%Y} · gerado em {date.today():%d/%m/%Y}")
+    hoje = hoje or date.today()
+    c.value = (f"Todos os títulos em aberto · recebidos desde {inicio_recebidos(hoje):%d/%m/%Y} · "
+               f"gerado em {hoje:%d/%m/%Y}")
     c.font = Font(name="Calibri", size=11, color="595959")
     c.alignment = Alignment(horizontal="left", vertical="center", indent=18)
 
