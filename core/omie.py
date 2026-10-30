@@ -96,6 +96,25 @@ class OmieCliente:
         except OmieErro:
             return []
 
+    def clientes(self):
+        return self._paginar("geral/clientes/", "ListarClientesResumido", "clientes_cadastro_resumido",
+                             {"apenas_importado_api": "N"})
+
+    def contas_receber(self):
+        return self._paginar("financas/contareceber/", "ListarContasReceber", "conta_receber_cadastro",
+                             {"apenas_importado_api": "N", "exibir_obs": "S"})
+
+    def movimentos_receber(self):
+        """Títulos a receber com situação e resumo (pago, em aberto): base da tela Finanças › Contas a Receber."""
+        pagina, itens = 1, []
+        while True:
+            d = self.chamar("financas/mf/", "ListarMovimentos",
+                            {"nPagina": pagina, "nRegPorPagina": 500, "cNatureza": "R"})
+            itens += d.get("movimentos", []) or []
+            if pagina >= (d.get("nTotPaginas") or 1):
+                return itens
+            pagina += 1
+
     def extrato(self, n_cod_cc, inicio, fim):
         return self.chamar("financas/extrato/", "ListarExtrato", {
             "nCodCC": int(n_cod_cc), "cCodIntCC": "",
@@ -132,8 +151,10 @@ def _pega_bruto(d, *chaves, padrao=None):
 
 
 def _data(v):
-    if isinstance(v, (date, datetime)):
-        return v if isinstance(v, date) else v.date()
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
     v = str(v or "").strip()
     for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y"):
         try:
