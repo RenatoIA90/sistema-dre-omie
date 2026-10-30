@@ -124,7 +124,7 @@ def _cel(cell, texto, tam=9, negrito=False, cor=PRETO, fundo=None, alinh=PP_ALIG
     cell.text = ""
     tf = cell.text_frame
     tf.word_wrap = True
-    cell.margin_left = cell.margin_right = Pt(4)
+    cell.margin_left = cell.margin_right = Pt(min(4, tam * 0.45))
     cell.margin_top = cell.margin_bottom = Pt(0.5)
     cell.vertical_anchor = MSO_ANCHOR.MIDDLE
     par = tf.paragraphs[0]
@@ -200,8 +200,8 @@ def _servicos(prs):
     _fundo(s, "slide_servicos.jpg")
 
 
-def _blocos_dre(dre, max_cols=5):
-    """Divide as colunas da DRE em páginas. Cada item: ('col'|'sub'|'tot', nome, valores)."""
+def _blocos_dre(dre):
+    """Colunas da DRE na ordem do Excel. Cada item: ('col'|'sub'|'tot', nome)."""
     cols, agrup = dre["colunas"], dre["agrupamentos"]
     seq, usados = [], set()
     for g, membros in agrup.items():
@@ -212,16 +212,14 @@ def _blocos_dre(dre, max_cols=5):
     seq += [("col", c) for c in cols if c not in usados]
     if len(cols) == 1 and not agrup:
         seq = []  # só uma coluna: mostra direto o total
-    seq.append(("tot", None))
-    paginas, atual = [], []
-    for item in seq:
-        atual.append(item)
-        if len(atual) >= max_cols and item[0] != "tot":
-            paginas.append(atual)
-            atual = []
-    if atual:
-        paginas.append(atual)
-    return paginas
+    return seq + [("tot", None)]
+
+
+def _cabe(texto, largura, tam):
+    """Corta o texto para caber em uma linha da largura dada (pontos) na fonte das tabelas."""
+    n = max(6, int(largura / (tam * 0.56)))
+    texto = str(texto)
+    return texto if len(texto) <= n else texto[:n - 1].rstrip() + "…"
 
 
 def _valor_bloco(l, tipo, nome, dre):
@@ -235,61 +233,66 @@ def _valor_bloco(l, tipo, nome, dre):
 def _slide_dre(prs, empresa, ano, mes, dre):
     """DRE financeira (seções, resultados e grupos) no visual do REPORT do Excel (modelo HAGILI):
     cabeçalhos com borda fina e só os totais em azul-marinho, seções e resultados com borda média
-    em cima e embaixo, grupos em cinza, AV% em itálico e valores sem centavos."""
+    em cima e embaixo, grupos em cinza, AV% em itálico e valores sem centavos.
+    Sempre em um slide só: com muitas colunas ou linhas a fonte e a altura das linhas diminuem."""
     linhas = [l for l in dre["linhas"] if l["nivel"] <= 2]
     ent_l = D.linha(dre, "(+) ENTRADAS")
-    por_pag = 34
     mes_txt = f"{['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][mes - 1]}-{str(ano)[2:]}"
     titulo = "CashFlowReport - Por " + {"projeto": "Projeto", "conta": "Conta"}.get(dre.get("modo", ""), "Conta")
-    for blocos in _blocos_dre(dre, max_cols=5):
-        for ri in range(0, len(linhas), por_pag):
-            pedaco = linhas[ri:ri + por_pag]
-            s = _slide_conteudo(prs, f"Gerencial Report – DRE FINANCEIRO {mes:02d}-{ano}")
-            n = len(pedaco) + 2
-            alt = min(13.5, 380.0 / n)
-            tam = 9 if alt >= 12 else 8
-            # descrição | valor, AV e um espaçador estreito por bloco (o último sem espaçador)
-            larg = [3.4]
-            for bi in range(len(blocos)):
-                larg += [1.05, 0.5] + ([0.1] if bi < len(blocos) - 1 else [])
-            w = min(840, 270 + 150 * len(blocos))  # sem invadir o enfeite do canto direito
-            y = 100 + max(0, (410 - (n + 0.6) * alt) / 2)
-            tbl = _tabela(s, (LARG - w) / 2, y, w, larg, n, alt)
-            tbl.rows[0].height = _p(alt * 1.6)
-            _cel(tbl.cell(0, 0), titulo, tam=tam + 1, negrito=True, alinh=PP_ALIGN.CENTER)
-            _cel(tbl.cell(1, 0), "Descrição da Conta", tam=tam, negrito=True, alinh=PP_ALIGN.CENTER)
-            for c in range(1, len(larg)):
-                _cel(tbl.cell(0, c), "", tam=tam)
-                _cel(tbl.cell(1, c), "", tam=tam)
-            for bi, (tipo, nome) in enumerate(blocos):
-                c = 1 + bi * 3
-                rot = nome if tipo == "col" else (f"TOTAL {nome}" if tipo == "sub" else f"TOTAL {empresa['nome']}")
-                destaque = tipo != "col"
-                tbl.cell(0, c).merge(tbl.cell(0, c + 1))
-                _cel(tbl.cell(0, c), rot.upper(), tam=tam, negrito=True, cor=BRANCO if destaque else PRETO,
-                     fundo=MARINHO if destaque else None, alinh=PP_ALIGN.CENTER, borda=True)
-                _borda(tbl.cell(0, c + 1))
-                _cel(tbl.cell(1, c), mes_txt, tam=tam, negrito=True, alinh=PP_ALIGN.CENTER)
-                _cel(tbl.cell(1, c + 1), "AV", tam=tam, negrito=True, alinh=PP_ALIGN.CENTER)
-            for r, l in enumerate(pedaco, start=2):
-                forte = l["tipo"] != "conta"
-                fundo = CINZA if l["tipo"] == "grupo" else None
-                for c in range(len(larg)):
-                    _cel(tbl.cell(r, c), "", tam=tam, fundo=fundo)
-                    if c > 1 and c % 3 == 0:  # espaçador
-                        tbl.cell(r, c).margin_left = tbl.cell(r, c).margin_right = 0
-                _cel(tbl.cell(r, 0), l["descricao"], tam=tam, negrito=forte, fundo=fundo)
-                for bi, (tipo, nome) in enumerate(blocos):
-                    c = 1 + bi * 3
-                    v = _valor_bloco(l, tipo, nome, dre)
-                    base_ent = _valor_bloco(ent_l, tipo, nome, dre) if ent_l.get("valores") else 0
-                    av = v / base_ent if base_ent else 0
-                    _cel(tbl.cell(r, c), _num(v), tam=tam, negrito=forte, fundo=fundo, alinh=PP_ALIGN.RIGHT)
-                    _cel(tbl.cell(r, c + 1), _av(av), tam=tam - 0.5, negrito=forte, italico=True, fundo=fundo,
-                         alinh=PP_ALIGN.RIGHT)
-                if l["tipo"] in ("secao", "resultado"):
-                    for c in range(len(larg)):
-                        _borda(tbl.cell(r, c), larg=MEDIA, lados="TB")
+    blocos = _blocos_dre(dre)
+    s = _slide_conteudo(prs, f"Gerencial Report – DRE FINANCEIRO {mes:02d}-{ano}")
+    n = len(linhas) + 2
+    alt = min(13.5, 405.0 / (n + 0.6))
+    nb = len(blocos)
+    tam = min(9 if alt >= 12 else 8 if alt >= 10.5 else 7 if alt >= 9 else 6,
+              9 if nb <= 4 else 8 if nb <= 6 else 7 if nb <= 8 else 6 if nb <= 11 else 5)
+    # descrição | valor, AV e um espaçador estreito por bloco (o último sem espaçador)
+    desc = 3.4 if nb <= 5 else 2.6
+    larg = [desc]
+    for bi in range(nb):
+        larg += [1.05, 0.5] + ([0.1] if bi < nb - 1 else [])
+    w = min(840, 270 + 150 * nb)  # sem invadir o enfeite do canto direito
+    w_desc = w * desc / sum(larg)
+    linhas = [dict(l, descricao=_cabe(l["descricao"], w_desc - 8, tam)) for l in linhas]
+    y = 100 + max(0, (410 - (n + 0.6) * alt) / 2)
+    tbl = _tabela(s, (LARG - w) / 2, y, w, larg, n, alt)
+    tbl.rows[0].height = _p(alt * 1.6)
+    _cel(tbl.cell(0, 0), titulo, tam=tam + 1, negrito=True, alinh=PP_ALIGN.CENTER)
+    _cel(tbl.cell(1, 0), "Descrição da Conta", tam=tam, negrito=True, alinh=PP_ALIGN.CENTER)
+    for c in range(1, len(larg)):
+        _cel(tbl.cell(0, c), "", tam=tam)
+        _cel(tbl.cell(1, c), "", tam=tam)
+    for bi, (tipo, nome) in enumerate(blocos):
+        c = 1 + bi * 3
+        rot = nome if tipo == "col" else (f"TOTAL {nome}" if tipo == "sub" else f"TOTAL {empresa['nome']}")
+        destaque = tipo != "col"
+        tbl.cell(0, c).merge(tbl.cell(0, c + 1))
+        _cel(tbl.cell(0, c), rot.upper(), tam=tam, negrito=True, cor=BRANCO if destaque else PRETO,
+             fundo=MARINHO if destaque else None, alinh=PP_ALIGN.CENTER, borda=True)
+        _borda(tbl.cell(0, c + 1))
+        _cel(tbl.cell(1, c), mes_txt, tam=tam, negrito=True, alinh=PP_ALIGN.CENTER)
+        _cel(tbl.cell(1, c + 1), "AV", tam=tam, negrito=True, alinh=PP_ALIGN.CENTER)
+    for r, l in enumerate(linhas, start=2):
+        forte = l["tipo"] != "conta"
+        fundo = CINZA if l["tipo"] == "grupo" else None
+        for c in range(len(larg)):
+            _cel(tbl.cell(r, c), "", tam=tam, fundo=fundo)
+        _cel(tbl.cell(r, 0), l["descricao"], tam=tam, negrito=forte, fundo=fundo)
+        for bi, (tipo, nome) in enumerate(blocos):
+            c = 1 + bi * 3
+            v = _valor_bloco(l, tipo, nome, dre)
+            base_ent = _valor_bloco(ent_l, tipo, nome, dre) if ent_l.get("valores") else 0
+            av = v / base_ent if base_ent else 0
+            _cel(tbl.cell(r, c), _num(v), tam=tam, negrito=forte, fundo=fundo, alinh=PP_ALIGN.RIGHT)
+            _cel(tbl.cell(r, c + 1), _av(av), tam=tam - 0.5, negrito=forte, italico=True, fundo=fundo,
+                 alinh=PP_ALIGN.RIGHT)
+        if l["tipo"] in ("secao", "resultado"):
+            for c in range(len(larg)):
+                _borda(tbl.cell(r, c), larg=MEDIA, lados="TB")
+    # espaçadores sem margem, senão o PowerPoint alarga a coluna e a tabela
+    for c in range(3, len(larg), 3):
+        for r in range(n):
+            tbl.cell(r, c).margin_left = tbl.cell(r, c).margin_right = 0
 
 
 # ---- quadros (saldos, recebimentos, fornecedores, funcionários, transferências) ----
@@ -325,8 +328,8 @@ def _slide_saldos(prs, saldos, ano, mes):
     ini = f"{calendar.monthrange(pa, pm)[1]:02d}/{pm:02d}/{pa}"
     fim = f"{calendar.monthrange(ano, mes)[1]:02d}/{mes:02d}/{ano}"
     n = len(saldos) + 2
-    alt = min(30, 360 / n)
-    tam = 14 if alt >= 24 else 11
+    alt = min(30, 400 / n)
+    tam = min(14, round(alt * 0.55 * 2) / 2)
     w = 680
     tbl = _tabela(s, (LARG - w) / 2, _y_centro(n * alt), w, [2.4, 2.0, 2.0], n, alt)
     for c, h in enumerate(["CONTA", f"SALDO INICIAL {ini}", f"SALDO FINAL {fim}"]):
@@ -342,69 +345,93 @@ def _slide_saldos(prs, saldos, ano, mes):
     _total_quadro(tbl.cell(r, 2), brl(sum(x["saldo_final"] for x in saldos)), tam)
 
 
-def _slide_blocos(prs, titulo, quadro, total_geral_rot=None, max_itens=40):
-    """Quadros 'cabeçalho azul + itens + total' distribuídos em até 3 colunas por slide."""
+def _resumir(itens, cap):
+    """Mantém os maiores itens e junta o resto em 'DEMAIS (n)', totalizando cap linhas."""
+    if len(itens) <= cap:
+        return itens
+    resto = itens[cap - 1:]
+    return itens[:cap - 1] + [(f"DEMAIS ({len(resto)})", sum(v for _, v in resto))]
+
+
+def _empacotar(blocos, lim):
+    """Distribui os quadros em colunas de até `lim` linhas (cabeçalho, itens, total e uma linha de espaço
+    entre quadros). Um quadro que não cabe no fim de uma coluna continua na próxima como '(cont.)'."""
+    colunas, usado = [[]], 0
+    for nome, itens, total in blocos:
+        resto, cont = list(itens), False
+        while True:
+            gap = 1 if usado else 0
+            livre = lim - usado - gap - 1  # tira o cabeçalho
+            if livre >= len(resto) + 1:
+                colunas[-1].append((nome + (" (cont.)" if cont else ""), resto, total))
+                usado += gap + len(resto) + 2
+                break
+            if livre >= 2:
+                colunas[-1].append((nome + (" (cont.)" if cont else ""), resto[:livre], None))
+                resto, cont = resto[livre:], True
+            colunas.append([])
+            usado = 0
+    return colunas
+
+
+def _slide_blocos(prs, titulo, quadro, total_geral_rot=None):
+    """Quadros 'cabeçalho azul + itens + total' em um slide só, em até 3 colunas. Se não couber, os
+    menores itens de cada quadro são somados em 'DEMAIS (n)' e as linhas e a fonte diminuem."""
     if not quadro:
         return
-    cartoes = []
-    for bloco, itens in quadro.items():
-        if len(itens) > max_itens:
-            resto = itens[max_itens - 1:]
-            itens = itens[:max_itens - 1] + [(f"DEMAIS ({len(resto)})", sum(v for _, v in resto))]
-        total = sum(v for _, v in itens)
-        cap = 28
-        for i in range(0, len(itens), cap):
-            parte = itens[i:i + cap]
-            ultimo = i + cap >= len(itens)
-            cartoes.append((bloco + (" (cont.)" if i else ""), parte, total if ultimo else None))
     geral = sum(v for its in quadro.values() for _, v in its)
-    lim = 30  # linhas por coluna
-    paginas, pag, col, usado = [], [[]], 0, 0
-    for c in cartoes:
-        h = len(c[1]) + 1 + (1 if c[2] is not None else 0)
-        if usado and usado + h + 1 > lim:
-            col += 1
-            usado = 0
-            if col == 3:
-                paginas.append(pag)
-                pag, col = [[]], 0
-            else:
-                pag.append([])
-        pag[-1].append(c)
-        usado += h + 1
-    paginas.append(pag)
-    for pi, pag in enumerate(paginas):
-        s = _slide_conteudo(prs, titulo)
-        ncol = len(pag)
-        wcol = {1: 540, 2: 390, 3: 292}[ncol]
-        gap = 14
-        x0 = (LARG - (wcol * ncol + gap * (ncol - 1))) / 2
-        com_geral = total_geral_rot and pi == len(paginas) - 1 and len(quadro) > 1
-        # com poucos itens as linhas e a fonte crescem para ocupar melhor o slide
-        linhas = max(sum(len(i) + 1 + (t is not None) + 1 for _, i, t in coluna) - 1 for coluna in pag)
-        alt = min(26.0, max(14.5, (360.0 if com_geral else 390.0) / linhas))
-        tam = (13 if alt >= 22 else 11 if alt >= 17 else 9.5) if ncol == 1 else (10 if alt >= 17 else 8.5)
-        alturas = [sum((len(i) + 1 + (t is not None) + 1) * alt for _, i, t in coluna) - alt for coluna in pag]
-        y0 = _y_centro(max(alturas), base=488 if com_geral else 515)
-        for ci, coluna in enumerate(pag):
-            y = y0
-            for bloco, itens, total in coluna:
-                n = len(itens) + 1 + (1 if total is not None else 0)
-                tbl = _tabela(s, x0 + ci * (wcol + gap), y, wcol, [3.2, 1.2], n, alt)
-                _cab_quadro(tbl.cell(0, 0), bloco, tam)
-                _cab_quadro(tbl.cell(0, 1), "VALOR", tam)
-                for r, (item, v) in enumerate(itens, start=1):
-                    _item_quadro(tbl.cell(r, 0), str(item).upper()[:60], tam, r % 2 == 0)
-                    _item_quadro(tbl.cell(r, 1), brl(v), tam, r % 2 == 0)
-                if total is not None:
-                    _total_quadro(tbl.cell(n - 1, 0), "TOTAL", tam)
-                    _total_quadro(tbl.cell(n - 1, 1), brl(total), tam)
-                y += n * alt + alt
-        if com_geral:
-            w = 540
-            tbl = _tabela(s, (LARG - w) / 2, 495, w, [3.2, 1.2], 1, 20)
-            _cab_quadro(tbl.cell(0, 0), total_geral_rot, 11)
-            _cab_quadro(tbl.cell(0, 1), brl(geral), 11)
+    com_geral = bool(total_geral_rot) and len(quadro) > 1
+    base = 488 if com_geral else 515
+    alt_min = 10.5
+    lim_max = int((base - 100) / alt_min)
+    maior = max(len(i) for i in quadro.values())
+    escolha = None
+    for cap in range(maior, 1, -1):
+        blocos = [(b, _resumir(i, cap), sum(v for _, v in i)) for b, i in quadro.items()]
+        total_linhas = sum(len(i) + 3 for _, i, _ in blocos) - 1
+        for ncol in (1, 2, 3):
+            for lim in range(max(4, -(-total_linhas // ncol)), lim_max + 1):
+                cols = _empacotar(blocos, lim)
+                if len(cols) <= ncol:
+                    escolha = cols
+                    break
+            if escolha:
+                break
+        if escolha:
+            break
+    if not escolha:  # quadros demais: aceita linhas mais baixas
+        blocos = [(b, _resumir(i, 2), sum(v for _, v in i)) for b, i in quadro.items()]
+        escolha = _empacotar(blocos, -(-(sum(len(i) + 3 for _, i, _ in blocos)) // 3) + 3)
+    s = _slide_conteudo(prs, titulo)
+    ncol = len(escolha)
+    wcol = {1: 540, 2: 390, 3: 280}[ncol]
+    gap = 14
+    x0 = (LARG - (wcol * ncol + gap * (ncol - 1))) / 2
+    # com poucos itens as linhas e a fonte crescem para ocupar melhor o slide
+    linhas = max(sum(len(i) + 1 + (t is not None) + 1 for _, i, t in coluna) - 1 for coluna in escolha)
+    alt = min(26.0, (base - 100 - 4) / linhas)
+    tam = min(13 if ncol == 1 else 10, round(alt * 0.6 * 2) / 2)
+    w_nome = wcol * 3.2 / 4.4 - 2 * min(4, tam * 0.45)
+    y0 = _y_centro(linhas * alt, base=base)
+    for ci, coluna in enumerate(escolha):
+        y = y0
+        for bloco, itens, total in coluna:
+            n = len(itens) + 1 + (1 if total is not None else 0)
+            tbl = _tabela(s, x0 + ci * (wcol + gap), y, wcol, [3.2, 1.2], n, alt)
+            _cab_quadro(tbl.cell(0, 0), _cabe(bloco, w_nome, tam), tam)
+            _cab_quadro(tbl.cell(0, 1), "VALOR", tam)
+            for r, (item, v) in enumerate(itens, start=1):
+                _item_quadro(tbl.cell(r, 0), _cabe(str(item).upper(), w_nome, tam), tam, r % 2 == 0)
+                _item_quadro(tbl.cell(r, 1), brl(v), tam, r % 2 == 0)
+            if total is not None:
+                _total_quadro(tbl.cell(n - 1, 0), "TOTAL", tam)
+                _total_quadro(tbl.cell(n - 1, 1), brl(total), tam)
+            y += n * alt + alt
+    if com_geral:
+        w = 540
+        tbl = _tabela(s, (LARG - w) / 2, 495, w, [3.2, 1.2], 1, 20)
+        _cab_quadro(tbl.cell(0, 0), total_geral_rot, 11)
+        _cab_quadro(tbl.cell(0, 1), brl(geral), 11)
 
 
 def _slide_transf(prs, transf):
@@ -413,21 +440,22 @@ def _slide_transf(prs, transf):
         return
     s = _slide_conteudo(prs, "Gerencial Report – TRANSFERÊNCIAS ENTRE CONTAS")
     n = len(transf) + 3
-    alt = 21
+    alt = min(21, 400 / n)
+    tam = min(12, round(alt * 0.58 * 2) / 2)
     w = 660
     tbl = _tabela(s, (LARG - w) / 2, _y_centro(n * alt), w, [2.2, 1.9, 1.9], n, alt)
     tbl.cell(0, 0).merge(tbl.cell(0, 2))
-    _cab_quadro(tbl.cell(0, 0), "TRANSFERÊNCIAS ENTRE CONTAS DA EMPRESA", 12)
+    _cab_quadro(tbl.cell(0, 0), "TRANSFERÊNCIAS ENTRE CONTAS DA EMPRESA", tam)
     for c, h in enumerate(["CONTA", "TRANSFERÊNCIA ENVIADA", "TRANSFERÊNCIA RECEBIDA"]):
-        _cab_quadro(tbl.cell(1, c), h, 11, fundo=AZUL_MEDIO)
+        _cab_quadro(tbl.cell(1, c), h, tam - 1, fundo=AZUL_MEDIO)
     for r, (conta, v) in enumerate(transf.items(), start=2):
         z = r % 2 == 1
-        _item_quadro(tbl.cell(r, 0), conta.upper(), 12, z)
-        _item_quadro(tbl.cell(r, 1), brl(v["enviada"]) if v["enviada"] else "R$ -", 12, z)
-        _item_quadro(tbl.cell(r, 2), brl(v["recebida"]) if v["recebida"] else "R$ -", 12, z)
-    _total_quadro(tbl.cell(n - 1, 0), "TOTAL TRANSFERIDO", 12)
-    _total_quadro(tbl.cell(n - 1, 1), brl(sum(v["enviada"] for v in transf.values())), 12)
-    _total_quadro(tbl.cell(n - 1, 2), brl(sum(v["recebida"] for v in transf.values())), 12)
+        _item_quadro(tbl.cell(r, 0), conta.upper(), tam, z)
+        _item_quadro(tbl.cell(r, 1), brl(v["enviada"]) if v["enviada"] else "R$ -", tam, z)
+        _item_quadro(tbl.cell(r, 2), brl(v["recebida"]) if v["recebida"] else "R$ -", tam, z)
+    _total_quadro(tbl.cell(n - 1, 0), "TOTAL TRANSFERIDO", tam)
+    _total_quadro(tbl.cell(n - 1, 1), brl(sum(v["enviada"] for v in transf.values())), tam)
+    _total_quadro(tbl.cell(n - 1, 2), brl(sum(v["recebida"] for v in transf.values())), tam)
 
 
 def _slide_analise(prs, textos, dre, ano, mes, empresa):
