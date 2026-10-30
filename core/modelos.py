@@ -63,22 +63,24 @@ _COMERCIO_CONTAS = [
     ("Taxa de Cartão", "080200"), ("Antecipação de Recebíveis", "080200"), ("Tarifas Bancárias", "080200"),
 ]
 
+# Mesma lógica do modelo HAGILI: poucos grupos amplos (nível 2, linha cinza) com as categorias do OMIE
+# dentro (nível 3). Ex.: VJ, autônomos, som, luz, foto e vídeo vão todos em PRESTADORES DE SERVIÇOS.
 _EVENTOS_GRUPOS = [
     ("010100", "RECEBIMENTOS DE EVENTOS", "ENTRADAS", "recebimentos"),
     ("010200", "OUTRAS ENTRADAS OPERACIONAIS", "ENTRADAS", "recebimentos"),
     ("020100", "IMPOSTOS", "DEDUCOES", ""),
-    ("040100", "EQUIPE DE EVENTOS", "CUSTOS", "funcionarios"),
+    ("040100", "MÃO DE OBRA OPERACIONAL", "CUSTOS", "funcionarios"),
     ("040200", "ENCARGOS E BENEFÍCIOS", "CUSTOS", ""),
-    ("040300", "ALIMENTOS E BEBIDAS", "CUSTOS", "fornecedores"),
-    ("040400", "DECORAÇÃO E MATERIAIS", "CUSTOS", "fornecedores"),
+    ("040300", "PRESTADORES DE SERVIÇOS", "CUSTOS", "fornecedores"),
+    ("040400", "ALIMENTOS E BEBIDAS", "CUSTOS", "fornecedores"),
     ("040500", "LOCAÇÃO DE ESPAÇO E EQUIPAMENTOS", "CUSTOS", "fornecedores"),
-    ("040600", "ATRAÇÕES (DJ, BANDA, SOM E LUZ)", "CUSTOS", "fornecedores"),
-    ("040700", "TRANSPORTE E LOGÍSTICA", "CUSTOS", "fornecedores"),
-    ("060100", "CONTABILIDADE", "DESPESAS", ""),
+    ("040600", "FORNECEDORES / MATERIAIS", "CUSTOS", "fornecedores"),
+    ("040700", "VIAGENS, TRANSPORTE E AJUDA DE CUSTO", "CUSTOS", ""),
+    ("040800", "TAXAS E LICENÇAS DE EVENTOS", "CUSTOS", ""),
+    ("060100", "SERVIÇOS ADMINISTRATIVOS", "DESPESAS", ""),
     ("060200", "SISTEMAS E TECNOLOGIA", "DESPESAS", ""),
-    ("060300", "MARKETING", "DESPESAS", ""),
-    ("060400", "ADMINISTRATIVO", "DESPESAS", ""),
     ("060500", "OCUPAÇÃO (ALUGUEL, CONDOMÍNIO, UTILIDADES)", "DESPESAS", ""),
+    ("060600", "JURÍDICO", "DESPESAS", ""),
     ("060700", "SÓCIOS", "DESPESAS", ""),
     tuple(A_CLASSIFICAR),
     ("080100", "RECEITAS FINANCEIRAS", "FINANCEIRO", ""),
@@ -87,15 +89,50 @@ _EVENTOS_GRUPOS = [
     ("090200", "SAÍDAS NÃO OPERACIONAIS", "NAO_OPERACIONAL", ""),
 ]
 _EVENTOS_CONTAS = [
+    # entradas
     ("Eventos", "010100"), ("Festas", "010100"), ("Sinal de Evento", "010100"), ("Clientes", "010100"),
-    ("Simples Nacional", "020100"), ("ISS", "020100"), ("Garçons", "040100"), ("Freelancers", "040100"),
-    ("Cachê", "040100"), ("Salários", "040100"), ("FGTS", "040200"), ("INSS", "040200"),
-    ("Buffet", "040300"), ("Bebidas", "040300"), ("Alimentos", "040300"), ("Decoração", "040400"),
-    ("Descartáveis", "040400"), ("Locação de Espaço", "040500"), ("Locação de Equipamentos", "040500"),
-    ("DJ", "040600"), ("Banda", "040600"), ("Som e Iluminação", "040600"), ("Frete", "040700"),
-    ("Combustível", "040700"), ("Contabilidade", "060100"), ("Sistemas", "060200"), ("Marketing", "060300"),
-    ("Aluguel", "060500"), ("Energia Elétrica", "060500"), ("Pró-Labore", "060700"),
-    ("Tarifas Bancárias", "080200"), ("Taxa de Cartão", "080200"),
+    ("Clientes - Serviços Prestados", "010100"), ("Serviços Prestados", "010100"), ("Estorno", "010200"),
+    # impostos
+    ("Simples Nacional", "020100"), ("Simples Nacional (DAS)", "020100"), ("DAS", "020100"), ("ISS", "020100"),
+    ("PIS", "020100"), ("COFINS", "020100"), ("IRPJ", "020100"), ("CSLL", "020100"),
+    # equipe
+    ("Salários", "040100"), ("Férias", "040100"), ("Rescisões", "040100"), ("13º Salário", "040100"),
+    ("Comissões", "040100"), ("Garçons", "040100"), ("Freelancers", "040100"),
+    ("FGTS", "040200"), ("INSS", "040200"), ("Vale Transporte", "040200"), ("Vale Refeição", "040200"),
+    # prestação de serviço
+    ("Prestação de Serviços", "040300"), ("Serviços de Terceiros", "040300"), ("Autônomos", "040300"),
+    ("Autônomo", "040300"), ("Serviço de VJ", "040300"), ("VJ", "040300"), ("DJ", "040300"), ("Banda", "040300"),
+    ("Cachê", "040300"), ("Cachê para show", "040300"), ("Som", "040300"), ("Iluminação", "040300"),
+    ("Som e Iluminação", "040300"), ("Técnico de Luz", "040300"), ("Técnico de Som", "040300"),
+    ("Fotografia e Vídeo", "040300"), ("Fotográfia e vídeo", "040300"), ("Fotografia", "040300"),
+    ("Filmagem", "040300"), ("Produção", "040300"), ("Produção Ref Beleza", "040300"),
+    ("Produção para Figurino", "040300"), ("Direção", "040300"), ("Agente Junior", "040300"),
+    ("Segurança", "040300"), ("Recepção", "040300"), ("Limpeza", "040300"),
+    # alimentos e bebidas
+    ("Buffet", "040400"), ("Bebidas", "040400"), ("Alimentos", "040400"), ("Despesas com alimentação", "040400"),
+    # locação
+    ("Locação", "040500"), ("Locação de Espaço", "040500"), ("Locação de Equipamentos", "040500"),
+    ("Aluguel de Equipamento", "040500"), ("Aluguel de Equipamentos", "040500"),
+    # fornecedores e materiais
+    ("Fornecedores", "040600"), ("Adiantamento a Fornecedores", "040600"), ("Decoração", "040600"),
+    ("Descartáveis", "040600"), ("Gráfica", "040600"), ("Materiais", "040600"), ("Figurino", "040600"),
+    # viagens
+    ("Transporte", "040700"), ("Uber", "040700"), ("Despesas de Viagens", "040700"), ("Viagens", "040700"),
+    ("Hospedagem", "040700"), ("Passagens", "040700"), ("Ajuda de Custo", "040700"), ("Frete", "040700"),
+    ("Combustível", "040700"), ("Estacionamento", "040700"), ("Pedágio", "040700"),
+    # taxas
+    ("Taxa ECAD", "040800"), ("ECAD", "040800"), ("Alvará", "040800"), ("Licenças", "040800"),
+    # administrativo
+    ("Contabilidade", "060100"), ("Marketing", "060100"), ("Publicidade", "060100"), ("Assessoria", "060100"),
+    ("Consultoria", "060100"), ("Administrativo", "060100"), ("Despesas Administrativas", "060100"),
+    ("Reembolso", "060100"), ("Telefonia", "060100"), ("Material de Escritório", "060100"),
+    ("Correios", "060100"),
+    ("Sistemas", "060200"), ("Software", "060200"), ("Internet", "060200"),
+    ("Aluguel", "060500"), ("Energia Elétrica", "060500"), ("Água", "060500"), ("Condomínio", "060500"),
+    ("Advogados", "060600"), ("Jurídico", "060600"), ("Cartório", "060600"),
+    ("Pró-Labore", "060700"), ("Distribuição de Lucros", "060700"),
+    ("A classificar", "060900"),
+    ("Tarifas Bancárias", "080200"), ("Taxa de Cartão", "080200"), ("Juros", "080200"),
 ]
 
 _INDUSTRIA_GRUPOS = [
