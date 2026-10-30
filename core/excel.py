@@ -1,43 +1,43 @@
 """Gera o Excel do fechamento no formato do modelo Savian: aba de REPORT com
-fórmulas SUMIFS sobre a BASE CLASSIFICADA, mais SALDOS, RECEBIMENTOS etc."""
+fórmulas SUMIFS sobre a BASE CLASSIFICADA, mais SALDOS, RECEBIMENTOS etc.
+
+A formatação reproduz a do modelo FECHAMENTO HAGILI: fonte Aptos Narrow, cabeçalhos de coluna
+em negrito com borda fina (só o TOTAL em azul-marinho), seções e resultados com borda média em
+cima e embaixo, grupos em cinza, contas recuadas, AV% em itálico e valores sem centavos."""
+from datetime import date
+
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, PatternFill, Side
 from openpyxl.utils import get_column_letter as L
 
 from . import dre as D
+from .fluxo import (AZUL_DIGITADO, CINZA_GRUPO, FMT, FMT_AV, FMT_CENT, FMT_MES, GRADE, MARINHO, SECAO,
+                    _cab, _fonte)
 from .plano import IGNORAR
 
-AZUL = "0B2A7A"
-AZUL_CLARO = "DDEBF7"
-CINZA = "D9D9D9"
-CINZA_CLARO = "F2F2F2"
-AMARELO = "FFFF00"
-FMT = '#,##0.00;(#,##0.00);"-"'
-FMT_PCT = '0%;-0%;"0%"'
-fino = Side(style="thin", color="808080")
-BORDA = Border(top=fino, bottom=fino, left=fino, right=fino)
+AMARELO_RATEIO = "FFF2CC"
+_fino = Side(style="thin")
+_medio = Side(style="medium")
+TOTAL_MEDIO = Border(top=_medio, bottom=_medio, left=_medio, right=_medio)
 
 
-def _cab(ws, row, col, texto, fill=AZUL, cor="FFFFFF"):
-    c = ws.cell(row, col, texto)
-    c.font = Font(bold=True, color=cor)
-    c.fill = PatternFill("solid", fgColor=fill)
-    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    c.border = BORDA
-    return c
+def _fill(cor):
+    return PatternFill("solid", fgColor=cor)
 
 
 def gerar_excel(caminho, empresa, ano, mes, base, dre, saldos, cfg):
     wb = Workbook()
     ws = wb.active
-    ws.title = f"REPORT {mes:02d} {ano}"
+    modo = {"projeto": "POR PROJETO", "conta": "POR CONTA"}.get(cfg.get("modo_colunas"))
+    ws.title = f"REPORT {mes:02d} {ano}" + (f" - {modo}" if modo else "")
     n_base = len(base) + 1
     _aba_base(wb, base)
-    _aba_report(ws, empresa, ano, mes, dre, n_base)
+    _aba_report(ws, empresa, ano, mes, dre, n_base, modo)
     _aba_saldos(wb, saldos, ano, mes)
-    _aba_quadro(wb, "RECEBIMENTOS", D.recebimentos(base, cfg), "RECEBIDO", com_av=True)
-    _aba_quadro(wb, "FORNECEDORES", D.pagamentos(base, cfg, "fornecedores"), "VALOR PAGO")
-    _aba_quadro(wb, "FUNCIONARIOS", D.pagamentos(base, cfg, "funcionarios"), "VALOR PAGO")
+    rotulo_rec = "PROJETO" if cfg.get("modo_colunas") == "projeto" else None
+    _aba_quadro(wb, "RECEBIMENTOS", D.recebimentos(base, cfg), "RECEBIDO", rotulo_rec, com_av=True)
+    _aba_quadro(wb, "FORNECEDORES", D.pagamentos(base, cfg, "fornecedores"), "VALOR PAGO", "FORNECEDOR")
+    _aba_quadro(wb, "FUNCIONARIOS", D.pagamentos(base, cfg, "funcionarios"), "VALOR PAGO", "FUNCIONÁRIO")
     _aba_transferencias(wb, D.transferencias(base))
     _aba_indicadores(wb, D.indicadores(dre), ano, mes)
     wb.move_sheet("BASE CLASSIFICADA", offset=len(wb.sheetnames))
@@ -45,14 +45,18 @@ def gerar_excel(caminho, empresa, ano, mes, base, dre, saldos, cfg):
     return caminho
 
 
-def _aba_report(ws, empresa, ano, mes, dre, n_base):
+def _aba_report(ws, empresa, ano, mes, dre, n_base, modo):
     cols, agrup = dre["colunas"], dre["agrupamentos"]
     ws.sheet_view.showGridLines = False
-    ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 52
-    ws.cell(1, 2, f"{empresa['nome']} — DRE Financeiro {mes:02d}/{ano}").font = Font(bold=True, size=14, color=AZUL)
-    _cab(ws, 2, 2, "CashFlowReport")
-    _cab(ws, 3, 2, "Descrição da Conta")
+    ws.column_dimensions["A"].width = 2
+    ws.column_dimensions["B"].width = 54
+    ws.row_dimensions[2].height = 45
+    titulo = "CashFlowReport" + (f" - {modo.title()}" if modo else "")
+    _cab(ws, 2, 2, titulo, fill=None, cor=None, borda=None).alignment = Alignment(horizontal="center",
+                                                                                   vertical="center")
+    c = ws.cell(3, 2, "Descrição da Conta")
+    c.font = _fonte(bold=True)
+    c.alignment = Alignment(horizontal="center", vertical="center")
     ws.freeze_panes = "C4"
 
     # layout das colunas: [coluna, coluna, ..., subtotal agrupamento], ..., TOTAL
@@ -68,22 +72,30 @@ def _aba_report(ws, empresa, ano, mes, dre, n_base):
     blocos.append(("tot", f"TOTAL {empresa['nome']}".upper()))
 
     pos, cpos = {}, 3
+    competencia = date(ano, mes, 1)
     for tipo, nome in blocos:
         pos[(tipo, nome)] = cpos
-        fill = AZUL if tipo == "col" else ("1F4E79" if tipo == "sub" else "000000")
         ws.merge_cells(start_row=2, start_column=cpos, end_row=2, end_column=cpos + 1)
-        _cab(ws, 2, cpos, nome if tipo != "sub" else f"TOTAL {nome}".upper(), fill=fill)
-        _cab(ws, 2, cpos + 1, None, fill=fill)
-        _cab(ws, 3, cpos, f"{mes:02d}/{ano}", fill=fill)
-        _cab(ws, 3, cpos + 1, "AV", fill=fill)
-        ws.column_dimensions[L(cpos)].width = 15
-        ws.column_dimensions[L(cpos + 1)].width = 7
-        ws.column_dimensions[L(cpos + 2)].width = 2
+        destaque = tipo != "col"
+        _cab(ws, 2, cpos, nome if tipo != "sub" else f"TOTAL {nome}".upper(),
+             fill=MARINHO if destaque else None, cor="FFFFFF" if destaque else None)
+        ws.cell(2, cpos + 1).border = Border(top=_fino, bottom=_fino, right=_fino)
+        for col, v, fmt in ((cpos, competencia, FMT_MES), (cpos + 1, "AV", "General")):
+            h = ws.cell(3, col, v)
+            h.font = _fonte(bold=True)
+            h.alignment = Alignment(horizontal="center")
+            h.number_format = fmt
+        ws.column_dimensions[L(cpos)].width = 13
+        ws.column_dimensions[L(cpos + 1)].width = 6.57
+        ws.column_dimensions[L(cpos + 2)].width = 1.14
         cpos += 3
     col_total = pos[("tot", blocos[-1][1])]
     col_conf = cpos
-    _cab(ws, 2, col_conf, "CONFERÊNCIA (TOTAL − BASE)", fill="7F7F7F")
-    ws.column_dimensions[L(col_conf)].width = 16
+    _cab(ws, 2, col_conf, "CONFERÊNCIA (TOTAL − BASE)", fill=None, cor=None, borda=None).font = _fonte(bold=True,
+                                                                                                         size=9)
+    ws.column_dimensions[L(col_conf)].width = 14
+    # colunas que recebem borda de seção / cinza de grupo: B até o AV do TOTAL (inclui os espaçadores)
+    faixa = range(2, col_total + 2)
 
     rng_v = f"'BASE CLASSIFICADA'!$K$2:$K${n_base}"
     rng_c = f"'BASE CLASSIFICADA'!$G$2:$G${n_base}"
@@ -107,14 +119,11 @@ def _aba_report(ws, empresa, ano, mes, dre, n_base):
     from .plano import RESULTADOS, SECOES
     for i, l in enumerate(linhas):
         r = row_of[i]
-        ws.cell(r, 1, l["nivel"]).font = Font(color="A6A6A6", size=8)
+        ws.cell(r, 1, l["nivel"]).font = _fonte(size=8, color="FFFFFF")
         c = ws.cell(r, 2, l["descricao"])
         bold = l["tipo"] != "conta"
-        fill = {"secao": CINZA, "grupo": CINZA_CLARO, "resultado": AZUL_CLARO}.get(l["tipo"])
-        c.font = Font(bold=bold, color=AZUL if l["tipo"] == "resultado" else "000000")
+        c.font = _fonte(bold=bold)
         if l["tipo"] == "conta":
-            c.alignment = Alignment(indent=2)
-        elif l["tipo"] == "grupo":
             c.alignment = Alignment(indent=1)
         for (tipo, nome), cp in pos.items():
             X = L(cp)
@@ -140,42 +149,47 @@ def _aba_report(ws, empresa, ano, mes, dre, n_base):
                 f = "=" + "+".join(f"{L(pos[('col', m)])}{r}" for m in cols) if cols else 0
             cv = ws.cell(r, cp, f)
             cv.number_format = FMT
-            cv.font = Font(bold=bold or tipo != "col")
+            cv.font = _fonte(bold=bold)
             ent = secao_row.get("ENTRADAS", r0)
             ca = ws.cell(r, cp + 1, f"=IFERROR({X}{r}/{X}${ent},0)")
-            ca.number_format = FMT_PCT
-            ca.font = Font(size=8, italic=True, color="595959")
-            for cc in (cv, ca):
-                if fill:
-                    cc.fill = PatternFill("solid", fgColor=fill)
-                cc.border = Border(bottom=Side(style="hair", color="BFBFBF"))
-        if fill:
-            c.fill = PatternFill("solid", fgColor=fill)
-        c.border = Border(bottom=Side(style="hair", color="BFBFBF"))
+            ca.number_format = FMT_AV
+            ca.font = _fonte(bold=bold, size=10, italic=True)
+        if l["tipo"] in ("secao", "resultado"):
+            for cc in faixa:
+                ws.cell(r, cc).border = SECAO
+        elif l["tipo"] == "grupo":
+            for cc in faixa:
+                ws.cell(r, cc).fill = _fill(CINZA_GRUPO)
         if l["tipo"] == "conta":
             T = L(col_total)
             cc = ws.cell(r, col_conf, f"=ROUND({T}{r}-SUMIFS({rng_v},{rng_c},$B{r}),2)")
-            cc.number_format = FMT
-            cc.font = Font(size=8, color="7F7F7F")
+            cc.number_format = FMT_CENT
+            cc.font = _fonte(size=10, italic=True, color="808080")
 
     fim = r0 + len(linhas)
     T = L(col_total)
     liq_row = r0 + next(i for i, l in enumerate(linhas) if l["descricao"] == D.RESULTADO_LIQUIDO)
-    ws.cell(fim + 1, 2, "Conferência: TOTAL − soma da BASE CLASSIFICADA (deve ser 0)").font = Font(italic=True, size=9)
     rng_g = f"'BASE CLASSIFICADA'!$F$2:$F${n_base}"
-    ws.cell(fim + 1, col_total, f"=ROUND({T}{liq_row}-SUMIFS({rng_v},{rng_g},\"<>{IGNORAR}\"),2)").number_format = FMT
-    ws.cell(fim + 2, 2, "Conferência: resultado líquido + transferências − variação de caixa (deve ser 0)").font = Font(italic=True, size=9)
-    ws.cell(fim + 2, col_total,
-            f"=ROUND({T}{liq_row}+SUMIFS({rng_v},{rng_g},\"{IGNORAR}\")-SALDOS!E{{TOT}},2)").number_format = FMT
+    conf = [
+        ("Conferência: TOTAL − soma da BASE CLASSIFICADA (deve ser 0)",
+         f"=ROUND({T}{liq_row}-SUMIFS({rng_v},{rng_g},\"<>{IGNORAR}\"),2)"),
+        ("Conferência: resultado líquido + transferências − variação de caixa (deve ser 0)",
+         f"=ROUND({T}{liq_row}+SUMIFS({rng_v},{rng_g},\"{IGNORAR}\")-SALDOS!E{{TOT}},2)"),
+    ]
+    for k, (txt, f) in enumerate(conf):
+        ws.cell(fim + 1 + k, 2, txt).font = _fonte(size=10, italic=True)
+        x = ws.cell(fim + 1 + k, col_total, f)
+        x.number_format = FMT_CENT
+        x.font = _fonte(size=10, italic=True)
     ws._savian_conf_cell = ws.cell(fim + 2, col_total)
-    ws.cell(fim + 4, 2, "Notas:").font = Font(bold=True)
+    ws.cell(fim + 4, 2, "Notas:").font = _fonte(bold=True, size=10)
     notas = [
         "• Valores puxados por SUMIFS da aba BASE CLASSIFICADA (cada lançamento do extrato OMIE + linhas de rateio).",
         "• Categorias com % no nome (ex.: \"Combustível (98%); Tarifas (2%)\") foram divididas entre as contas pelos percentuais.",
         "• DRE financeira (regime de caixa): considera apenas lançamentos realizados; transferências entre contas ficam fora.",
     ]
     for i, n in enumerate(notas):
-        ws.cell(fim + 5 + i, 2, n).font = Font(size=9, color="595959")
+        ws.cell(fim + 5 + i, 2, n).font = _fonte(size=10)
 
 
 def _aba_base(wb, base):
@@ -183,9 +197,9 @@ def _aba_base(wb, base):
     hdr = ["Data", "Cliente ou Fornecedor", "Conta Corrente", "Categoria (original)", "Componente",
            "Grupo", "Conta do Fechamento", "Projeto (original)", "Coluna (fechamento)", "Situação", "Valor (R$)",
            "Tipo", "Observações"]
-    larg = [11, 38, 18, 34, 26, 9, 40, 22, 26, 13, 14, 11, 60]
+    larg = [11, 38, 18, 34, 26, 9, 40, 32, 26, 13, 13, 11, 60]
     for i, (h, w) in enumerate(zip(hdr, larg), start=1):
-        _cab(ws, 1, i, h)
+        _cab(ws, 1, i, h, borda=None)
         ws.column_dimensions[L(i)].width = w
     for r, b in enumerate(base, start=2):
         vals = [b["data"], b["favorecido"], b["conta_corrente"], b["categoria"], b["componente"], b["grupo"],
@@ -193,12 +207,13 @@ def _aba_base(wb, base):
                 (b["observacoes"] or "")[:500]]
         for c, v in enumerate(vals, start=1):
             cell = ws.cell(r, c, v)
+            cell.font = _fonte()
             if c == 1:
-                cell.number_format = "DD/MM/YYYY"
+                cell.number_format = "mm-dd-yy"
             if c == 11:
-                cell.number_format = FMT
+                cell.number_format = FMT_CENT
             if b["tipo"] != "Lançamento":
-                cell.fill = PatternFill("solid", fgColor="FFF2CC")
+                cell.fill = _fill(AMARELO_RATEIO)
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:{L(len(hdr))}{len(base) + 1}"
 
@@ -206,25 +221,24 @@ def _aba_base(wb, base):
 def _aba_saldos(wb, saldos, ano, mes):
     import calendar
     ws = wb.create_sheet("SALDOS")
-    ws.sheet_view.showGridLines = False
     ult = calendar.monthrange(ano, mes)[1]
     ini = f"{calendar.monthrange(ano - (mes == 1), 12 if mes == 1 else mes - 1)[1]:02d}/{12 if mes == 1 else mes - 1:02d}/{ano - (mes == 1)}"
+    ws.row_dimensions[2].height = 30
     for i, h in enumerate(["CONTA", f"SALDO INICIAL {ini}", f"SALDO FINAL {ult:02d}/{mes:02d}/{ano}", "VARIAÇÃO"], start=2):
-        _cab(ws, 2, i, h, fill=AMARELO, cor="000000")
+        _cab(ws, 2, i, h, borda=None).alignment = Alignment(horizontal="center", wrap_text=True)
     for r, s in enumerate(saldos, start=3):
-        ws.cell(r, 2, s["conta"]).border = BORDA
+        ws.cell(r, 2, s["conta"]).font = _fonte()
         for c, v in ((3, s["saldo_inicial"]), (4, s["saldo_final"]), (5, f"=D{r}-C{r}")):
             x = ws.cell(r, c, v)
-            x.number_format = FMT
-            x.border = BORDA
+            x.number_format = FMT_CENT
+            x.font = _fonte(color=AZUL_DIGITADO if c < 5 else None)
     tot = 3 + len(saldos)
-    ws.cell(tot, 2, "TOTAL").font = Font(bold=True)
+    ws.cell(tot, 2, "TOTAL").font = _fonte(bold=True)
     for c in (3, 4, 5):
         x = ws.cell(tot, c, f"=SUM({L(c)}3:{L(c)}{tot - 1})" if saldos else 0)
-        x.number_format = FMT
-        x.font = Font(bold=True)
-        x.border = BORDA
-    for col, w in zip("BCDE", (34, 24, 24, 18)):
+        x.number_format = FMT_CENT
+        x.font = _fonte(bold=True)
+    for col, w in zip("ABCDE", (2, 28, 20, 20, 20)):
         ws.column_dimensions[col].width = w
     rep = wb.worksheets[0]
     cel = getattr(rep, "_savian_conf_cell", None)
@@ -232,89 +246,101 @@ def _aba_saldos(wb, saldos, ano, mes):
         cel.value = cel.value.replace("{TOT}", str(tot))
 
 
-def _aba_quadro(wb, nome, quadro, rotulo_valor, com_av=False):
+def _titulo_quadro(ws, row, texto, ncols):
+    """Linha de título do quadro (como "RECEBIMENTOS POR PROJETO" no modelo): mesclada, negrito, borda fina."""
+    ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=1 + ncols)
+    _cab(ws, row, 2, texto, fill=None, cor=None).alignment = Alignment(horizontal="center")
+    for c in range(3, 2 + ncols):
+        ws.cell(row, c).border = Border(top=_fino, bottom=_fino, right=_fino if c == 1 + ncols else None)
+
+
+def _cab_quadro(ws, row, textos):
+    for i, h in enumerate(textos, start=2):
+        _cab(ws, row, i, h).alignment = Alignment(horizontal="center")
+
+
+def _linha_total(ws, row, valores, fmts):
+    """Linha de total do quadro: negrito com borda média, como "TOTAL RECEBIMENTO" no modelo."""
+    for i, (v, fmt) in enumerate(zip(valores, fmts), start=2):
+        x = ws.cell(row, i, v)
+        x.font = _fonte(bold=True)
+        x.border = TOTAL_MEDIO
+        if fmt:
+            x.number_format = fmt
+
+
+def _rotulo_item(bloco, padrao):
+    if padrao:
+        return padrao
+    if "POR CATEGORIA" in bloco:
+        return "CATEGORIA"
+    return "CLIENTE"
+
+
+def _aba_quadro(wb, nome, quadro, rotulo_valor, rotulo_item=None, com_av=False):
     ws = wb.create_sheet(nome)
-    ws.sheet_view.showGridLines = False
-    ws.column_dimensions["B"].width = 50
-    ws.column_dimensions["C"].width = 18
-    ws.column_dimensions["D"].width = 9
+    ws.column_dimensions["A"].width = 2
+    ws.column_dimensions["B"].width = 38
+    ws.column_dimensions["C"].width = 13
+    ws.column_dimensions["D"].width = 7.14
+    ncols = 3 if com_av else 2
     r = 2
     total_rows = []
     for bloco, itens in quadro.items():
-        _cab(ws, r, 2, bloco, fill=AMARELO, cor="000000")
-        _cab(ws, r, 3, rotulo_valor, fill=AMARELO, cor="000000")
-        if com_av:
-            _cab(ws, r, 4, "AV%", fill=AMARELO, cor="000000")
-        r += 1
+        _titulo_quadro(ws, r, bloco, ncols)
+        _cab_quadro(ws, r + 1, [_rotulo_item(bloco, rotulo_item), rotulo_valor] + (["AV%"] if com_av else []))
+        r += 2
         ini = r
+        fim = r + len(itens)
         for item, v in itens:
-            ws.cell(r, 2, item).border = BORDA
-            x = ws.cell(r, 3, v)
-            x.number_format = FMT
-            x.border = BORDA
+            ws.cell(r, 2, item)
+            ws.cell(r, 3, v).number_format = FMT_CENT
+            if com_av:
+                ws.cell(r, 4, f"=IFERROR(C{r}/$C${fim},0)").number_format = "0.0%"
+            for c in range(2, 2 + ncols):
+                ws.cell(r, c).font = _fonte()
+                ws.cell(r, c).border = GRADE
             r += 1
-        ws.cell(r, 2, f"TOTAL {bloco}").font = Font(bold=True, color="FFFFFF")
-        x = ws.cell(r, 3, f"=SUM(C{ini}:C{r - 1})")
-        x.number_format = FMT
-        x.font = Font(bold=True, color="FFFFFF")
-        for c in (2, 3):
-            ws.cell(r, c).fill = PatternFill("solid", fgColor="000000")
-        if com_av:
-            for rr in range(ini, r):
-                a = ws.cell(rr, 4, f"=IFERROR(C{rr}/C${r},0)")
-                a.number_format = "0.0%"
-                a.border = BORDA
+        vals = [f"TOTAL {bloco}", f"=SUM(C{ini}:C{r - 1})"] + ([f"=SUM(D{ini}:D{r - 1})"] if com_av else [])
+        _linha_total(ws, r, vals, [None, FMT_CENT, "0.0%"])
         total_rows.append(r)
         r += 2
     if len(total_rows) > 1:
-        ws.cell(r, 2, f"TOTAL GERAL").font = Font(bold=True)
-        x = ws.cell(r, 3, "=" + "+".join(f"C{t}" for t in total_rows))
-        x.number_format = FMT
-        x.font = Font(bold=True)
+        _linha_total(ws, r, ["TOTAL GERAL", "=" + "+".join(f"C{t}" for t in total_rows)], [None, FMT_CENT])
     if not quadro:
-        ws.cell(2, 2, "Sem lançamentos no mês para este quadro.")
+        ws.cell(2, 2, "Sem lançamentos no mês para este quadro.").font = _fonte()
 
 
 def _aba_transferencias(wb, transf):
     ws = wb.create_sheet("TRANSFERENCIAS")
-    ws.sheet_view.showGridLines = False
-    ws.merge_cells("B2:D2")
-    _cab(ws, 2, 2, "TRANSFERÊNCIAS ENTRE CONTAS DA EMPRESA", fill=AMARELO, cor="000000")
-    for i, h in enumerate(["CONTA", "TRANSFERÊNCIA ENVIADA", "TRANSFERÊNCIA RECEBIDA"], start=2):
-        _cab(ws, 3, i, h, fill=AMARELO, cor="000000")
+    _titulo_quadro(ws, 2, "TRANSFERÊNCIAS ENTRE CONTAS DA EMPRESA", 3)
+    _cab_quadro(ws, 3, ["CONTA", "TRANSFERÊNCIA ENVIADA", "TRANSFERÊNCIA RECEBIDA"])
     r = 4
     for conta, v in transf.items():
-        ws.cell(r, 2, conta).border = BORDA
-        for c, val in ((3, v["enviada"]), (4, v["recebida"])):
-            x = ws.cell(r, c, round(val, 2))
-            x.number_format = FMT
-            x.border = BORDA
+        ws.cell(r, 2, conta)
+        ws.cell(r, 3, round(v["enviada"], 2)).number_format = FMT_CENT
+        ws.cell(r, 4, round(v["recebida"], 2)).number_format = FMT_CENT
+        for c in (2, 3, 4):
+            ws.cell(r, c).font = _fonte()
+            ws.cell(r, c).border = GRADE
         r += 1
-    ws.cell(r, 2, "TOTAL TRANSFERIDO").font = Font(bold=True)
-    for c in (3, 4):
-        x = ws.cell(r, c, f"=SUM({L(c)}4:{L(c)}{r - 1})" if transf else 0)
-        x.number_format = FMT
-        x.font = Font(bold=True)
-        x.fill = PatternFill("solid", fgColor=AZUL_CLARO)
-    for col, w in zip("BCD", (34, 24, 24)):
+    somas = [f"=SUM({L(c)}4:{L(c)}{r - 1})" if transf else 0 for c in (3, 4)]
+    _linha_total(ws, r, ["TOTAL TRANSFERIDO"] + somas, [None, FMT_CENT, FMT_CENT])
+    for col, w in zip("ABCD", (2, 34, 20, 20)):
         ws.column_dimensions[col].width = w
 
 
 def _aba_indicadores(wb, ind, ano, mes):
     ws = wb.create_sheet("INDICADORES")
-    ws.sheet_view.showGridLines = False
-    for i, h in enumerate(["Indicador", f"{mes:02d}/{ano}", "% dos recebimentos"], start=2):
-        _cab(ws, 2, i, h)
+    _cab_quadro(ws, 2, ["Indicador", date(ano, mes, 1), "% dos recebimentos"])
+    ws.cell(2, 3).number_format = FMT_MES
     for r, (k, v) in enumerate(ind.items(), start=3):
-        ws.cell(r, 2, k).border = BORDA
-        a = ws.cell(r, 3, v["valor"])
-        a.number_format = FMT
-        a.border = BORDA
-        b = ws.cell(r, 4, v["pct"])
-        b.number_format = "0.0%"
-        b.border = BORDA
-        if k.startswith("Resultado") or k in ("Entradas", "Receita Líquida"):
-            for c in (2, 3, 4):
-                ws.cell(r, c).font = Font(bold=True)
-    for col, w in zip("BCD", (30, 20, 20)):
+        destaque = k.startswith("Resultado") or k in ("Entradas", "Receita Líquida")
+        ws.cell(r, 2, k)
+        ws.cell(r, 3, v["valor"]).number_format = FMT_CENT
+        ws.cell(r, 4, v["pct"]).number_format = "0.0%"
+        for c in (2, 3, 4):
+            ws.cell(r, c).font = _fonte(bold=destaque)
+            ws.cell(r, c).border = GRADE
+    for col, w in zip("ABCD", (2, 30, 16, 16)):
         ws.column_dimensions[col].width = w
