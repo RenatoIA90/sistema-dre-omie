@@ -159,8 +159,9 @@ def _coluna(l, cfg):
     return "TOTAL"
 
 
-def montar_base(lancs, cfg, mapa):
-    """Base classificada: uma linha por componente de lançamento (+ linhas de rateio manual)."""
+def montar_base(lancs, cfg, mapa, codificar=None):
+    """Base classificada: uma linha por componente de lançamento (+ linhas de rateio manual).
+    codificar(base, grupos) define o conta_fechamento (padrão: códigos em ordem alfabética por grupo)."""
     grupos = {g[0]: g for g in grupos_da_empresa(cfg)}
     so_realizado = cfg.get("apenas_realizado", True)
     base = []
@@ -177,7 +178,7 @@ def montar_base(lancs, cfg, mapa):
             "projeto": c.get("projeto", ""), "coluna": _coluna(c, cfg), "valor": c["valor"],
             "tipo": "Lançamento", "situacao": c.get("situacao", ""), "observacoes": c.get("observacoes", ""),
         })
-    _codificar_contas(base, grupos)
+    (codificar or _codificar_contas)(base, grupos)
     for a in cfg.get("rateios_mes", []) or []:
         _aplicar_rateio(base, a)
     return base

@@ -12,7 +12,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from core import analise, apresentacao, db, dre, excel, fluxo, modelos, recebimento
+from core import analise, apresentacao, db, dre, excel, fluxo, modelos, ms_festas, recebimento
 from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
@@ -333,6 +333,7 @@ def tela_empresas():
 
 def todos_modelos():
     return {**{f"{n} (pronto)": m for n, m in modelos.MODELOS_PRONTOS.items()},
+            ms_festas.NOME_MODELO: ms_festas.modelo(),
             **{f"{n} (importado)": m for n, m in db.listar_modelos().items()}}
 
 
@@ -546,8 +547,19 @@ def tela_report():
         ultimas_geracoes()
         return
 
+    eh_ms = ms_festas.eh_ms_festas(emp)
+    if eh_ms and ms_festas.precisa_aplicar_modelo(emp["config"]):
+        # MS FESTAS: plano de contas do modelo FECHAMENTO MS FESTAS (aplicado uma vez; pode ser trocado depois)
+        ms_festas.aplicar_modelo(emp["config"], emp["mapa"])
+        db.salvar_config(emp["id"], emp["config"])
+        db.salvar_mapa(emp["id"], emp["mapa"])
+        st.info("Aplicado o plano de contas do modelo **FECHAMENTO MS FESTAS** a esta empresa. Confira a "
+                "classificação na aba **1. Classificação**.", icon="📋")
     cfg = copy.deepcopy(emp["config"])
     mapa = emp["mapa"]
+    if eh_ms:
+        ms_festas.preparar_colunas(cfg, [c["descricao"] for c in contas_conhecidas(emp)]
+                                   + sorted({l.get("conta_corrente") or "" for l in dados["lancs"]} - {""}))
     antes = list(cfg.get("grupos_criados") or [])
     novas = dre.completar_mapeamento(mapa, dados["lancs"], cfg)
     if novas:
@@ -563,8 +575,12 @@ def tela_report():
     cfg["rateios_mes"] = cfg.get("rateios", {}).get(f"{ano}-{mes:02d}", [])
     saldos = dados["saldos"]
 
-    base = dre.montar_base(dados["lancs"], cfg, mapa)
-    d = dre.montar_dre(base, cfg)
+    if eh_ms:
+        base = ms_festas.montar_base(dados["lancs"], cfg, mapa)
+        d = ms_festas.montar_dre(base, cfg)
+    else:
+        base = dre.montar_base(dados["lancs"], cfg, mapa)
+        d = dre.montar_dre(base, cfg)
     vistas = sorted({(l.get("projeto") if cfg["modo_colunas"] == "projeto" else l.get("conta_corrente")) or ""
                      for l in dados["lancs"]} - {""})
     st.session_state[f"colunas_vistas_{emp['id']}"] = vistas
@@ -604,7 +620,7 @@ def tela_report():
         dfb = pd.DataFrame(base)
         st.dataframe(dfb, width="stretch", height=600, hide_index=True)
     with abas[5]:
-        aba_arquivos(emp, cfg, base, d, saldos, int(ano), int(mes))
+        aba_arquivos(emp, cfg, base, d, saldos, int(ano), int(mes), dados["lancs"], sel)
     st.divider()
     ultimas_geracoes()
 
@@ -920,7 +936,53 @@ def dre_df(d):
     return df.style.format(fmt)
 
 
-def aba_arquivos(emp, cfg, base, d, saldos, ano, mes):
+def mes_anterior(ano, mes, n):
+    """(ano, mes) n meses antes."""
+    i = ano * 12 + (mes - 1) - n
+    return i // 12, i % 12 + 1
+
+
+def lancs_do_mes(emp, ano, mes, sel):
+    """Lançamentos de um mês: do que já foi puxado nesta sessão ou da API do OMIE."""
+    k = f"dados_{emp['id']}_{ano}_{mes}_{'-'.join(sorted(sel))}"
+    if k not in st.session_state:
+        cli = OmieCliente(emp["app_key"], emp["app_secret"])
+        r = baixar_mes(cli, ano, mes, sel or None)
+        st.session_state[k] = {"lancs": r["lancamentos"], "saldos": r["saldos"]}
+    return st.session_state[k]["lancs"]
+
+
+def gerar_comparativo_ms(emp, cfg, ano, mes, lancs, sel, n_ant, pasta):
+    """Planilha à parte 'Comparativos MS FESTAS': os n_ant meses anteriores + o mês do report."""
+    if not emp["app_key"] or not emp["app_secret"]:
+        st.warning("Comparativo não gerado: para buscar os meses anteriores é preciso a App Key e o App Secret do OMIE.")
+        return None
+    meses = []
+    try:
+        barra = st.progress(0.0, "Buscando meses anteriores no OMIE...")
+        for i in range(n_ant, 0, -1):
+            a, m = mes_anterior(ano, mes, i)
+            barra.progress((n_ant - i) / n_ant, f"Buscando {m:02d}/{a} no OMIE...")
+            meses.append((a, m, lancs_do_mes(emp, a, m, sel)))
+        barra.empty()
+    except OmieErro as e:
+        st.warning(f"Comparativo não gerado: erro ao buscar os meses anteriores no OMIE ({e}).")
+        return None
+    meses.append((ano, mes, lancs))
+    c = copy.deepcopy(cfg)
+    mapa = emp["mapa"]
+    res, novas = ms_festas.montar_meses(meses, c, mapa)
+    if novas:
+        db.salvar_mapa(emp["id"], mapa)
+    if c.get("grupos") != cfg.get("grupos"):
+        emp["config"]["grupos"], emp["config"]["grupos_criados"] = c["grupos"], c.get("grupos_criados", [])
+        db.salvar_config(emp["id"], emp["config"])
+    arq = os.path.join(pasta, f"Comparativos MS FESTAS {mes:02d}_{ano}.xlsx")
+    ms_festas.gerar_comparativo(arq, emp, res)
+    return arq
+
+
+def aba_arquivos(emp, cfg, base, d, saldos, ano, mes, lancs=None, sel=()):
     textos = analise.gerar_textos(emp, ano, mes, base, d, saldos, cfg)
     st.caption("Textos gerados automaticamente a partir dos números. Edite à vontade antes de gerar a apresentação.")
     k = f"txt_{emp['id']}_{ano}_{mes}"
@@ -930,6 +992,14 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes):
     pos = c1.text_area("Pontos positivos", textos["positivos"], height=200, key=k + "p")
     ate = c2.text_area("Pontos de atenção", textos["atencao"], height=200, key=k + "a")
     concl = st.text_area("Conclusão", textos["conclusao"], height=80, key=k + "c")
+    eh_ms = ms_festas.eh_ms_festas(emp)
+    n_ant = 0
+    if eh_ms:
+        st.caption("MS FESTAS: o Excel sai no modelo **FECHAMENTO MS FESTAS**, o PowerPoint ganha os gráficos de "
+                   "receita x custos x despesas e de custos e despesas por categoria, e é gerada a planilha à parte "
+                   "**Comparativos MS FESTAS** (meses anteriores buscados no OMIE).")
+        n_ant = st.number_input("Meses anteriores no Comparativo MS FESTAS", 0, 11, 1, key=k + "nant",
+                                help="0 = não gerar o comparativo. 1 = mês anterior x mês do report (como no modelo).")
 
     if st.button("📦 Gerar Excel e PowerPoint", type="primary"):
         pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), f"{ano}-{mes:02d}")
@@ -937,23 +1007,32 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes):
         base_nome = f"FECHAMENTO {emp['nome']} {mes:02d}_{ano}".replace("/", "-")
         xlsx = os.path.join(pasta, base_nome + ".xlsx")
         pptx = os.path.join(pasta, f"{emp['nome']} REPORT {mes:02d}_{ano}.pptx".replace("/", "-"))
+        txts = {"titulo": titulo, "fechamento": fech, "positivos": pos, "atencao": ate, "conclusao": concl}
+        comp = None
         with st.spinner("Gerando arquivos..."):
-            excel.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg)
-            apresentacao.gerar_pptx(pptx, emp, ano, mes, base, d, saldos, cfg,
-                                    {"titulo": titulo, "fechamento": fech, "positivos": pos, "atencao": ate,
-                                     "conclusao": concl})
-        st.session_state[k + "arqs"] = (xlsx, pptx)
+            if eh_ms:
+                ms_festas.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg, txts)
+            else:
+                excel.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg)
+            apresentacao.gerar_pptx(pptx, emp, ano, mes, base, d, saldos, cfg, txts, graficos=eh_ms)
+            if eh_ms and n_ant and lancs is not None:
+                comp = gerar_comparativo_ms(emp, cfg, ano, mes, lancs, list(sel or []), int(n_ant), pasta)
+        st.session_state[k + "arqs"] = (xlsx, pptx, comp)
         db.registrar_geracao(emp["id"], ano, mes, getpass.getuser(), xlsx, pptx)
         st.success(f"Arquivos salvos em `{pasta}`")
     arqs = st.session_state.get(k + "arqs")
     if arqs:
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with open(arqs[0], "rb") as f:
             c1.download_button("⬇️ Baixar Excel (DRE)", f.read(), file_name=os.path.basename(arqs[0]),
                                mime=MIME_XLSX)
         with open(arqs[1], "rb") as f:
             c2.download_button("⬇️ Baixar PowerPoint", f.read(), file_name=os.path.basename(arqs[1]),
                                mime=MIME_PPTX)
+        if len(arqs) > 2 and arqs[2] and os.path.exists(arqs[2]):
+            with open(arqs[2], "rb") as f:
+                c3.download_button("⬇️ Baixar Comparativos MS FESTAS", f.read(),
+                                   file_name=os.path.basename(arqs[2]), mime=MIME_XLSX)
 
 
 if st.session_state["pagina"] == "bpo":

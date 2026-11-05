@@ -498,7 +498,138 @@ def _slide_pontos(prs, textos, ano, mes):
     _texto(s, 80, 115, 800, 390, linhas)
 
 
-def gerar_pptx(caminho, empresa, ano, mes, base, dre, saldos, cfg, textos):
+# ---- gráficos de pizza (MS FESTAS), no visual do modelo Grafico-de-pizza: tons de azul, fatias separadas por
+# borda branca e rótulo "categoria + %" fora da fatia, sem legenda
+
+AZUL_ESCURO_PIZZA = (0x2E, 0x5A, 0x88)
+AZUL_CLARO_PIZZA = (0xDA, 0xE3, 0xF3)
+CINZA_TEXTO = RGBColor(0x40, 0x40, 0x40)
+
+
+def _tons_azul(n):
+    """n tons do azul escuro ao claro (a maior fatia fica com o tom mais escuro)."""
+    if n <= 1:
+        return [RGBColor(*AZUL_ESCURO_PIZZA)]
+    out = []
+    for i in range(n):
+        t = i / (n - 1)
+        out.append(RGBColor(*(round(a + (b - a) * t) for a, b in zip(AZUL_ESCURO_PIZZA, AZUL_CLARO_PIZZA))))
+    return out
+
+
+def _pizza(slide, x, y, w, h, itens, tam_rotulo=11):
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
+    dados = CategoryChartData(number_format="0%")
+    dados.categories = [n for n, _ in itens]
+    dados.add_series("Participação", [v for _, v in itens])
+    graf = slide.shapes.add_chart(XL_CHART_TYPE.PIE, _p(x), _p(y), _p(w), _p(h), dados).chart
+    graf.has_legend = False
+    graf.has_title = False
+    plot = graf.plots[0]
+    plot.vary_by_categories = True
+    serie = plot.series[0]
+    for i, cor in enumerate(_tons_azul(len(itens))):
+        pt = serie.points[i]
+        pt.format.fill.solid()
+        pt.format.fill.fore_color.rgb = cor
+        pt.format.line.color.rgb = BRANCO
+        pt.format.line.width = Pt(2)
+    plot.has_data_labels = True
+    dl = plot.data_labels
+    dl.show_category_name = True
+    dl.show_percentage = True
+    dl.show_value = False
+    dl.number_format = "0%"
+    dl.number_format_is_linked = False
+    dl.position = XL_LABEL_POSITION.OUTSIDE_END
+    dl.font.size = Pt(tam_rotulo)
+    dl.font.name = FONTE
+    dl.font.color.rgb = CINZA_TEXTO
+    # separador "quebra de linha" entre categoria e % (como no modelo: "Sofá" em cima e "12%" embaixo)
+    dLbls = plot._element.find(qn("c:dLbls"))
+    sep = dLbls.find(qn("c:separator"))
+    if sep is None:
+        sep = etree.SubElement(dLbls, qn("c:separator"))
+        ordem = [qn("c:showLeaderLines"), qn("c:leaderLines"), qn("c:extLst")]
+        prox = next((e for e in dLbls if e.tag in ordem), None)
+        if prox is not None:
+            prox.addprevious(sep)
+    sep.text = "\n"
+    lideres = dLbls.find(qn("c:showLeaderLines"))
+    if lideres is None:
+        lideres = etree.SubElement(dLbls, qn("c:showLeaderLines"))
+        prox = next((e for e in dLbls if e.tag in (qn("c:leaderLines"), qn("c:extLst"))), None)
+        if prox is not None:
+            prox.addprevious(lideres)
+    lideres.set("val", "1")
+    return graf
+
+
+def _tabela_pizza(slide, x, y, w, itens, total, rot_item, rot_total, destaque=None, alt=17.0, tam=10):
+    n = len(itens) + 2
+    tbl = _tabela(slide, x, y, w, [3.0, 1.7, 1.0], n, alt)
+    for c, h in enumerate([rot_item, "VALOR", "% DO TOTAL"]):
+        _cab_quadro(tbl.cell(0, c), h, tam)
+    for r, (nome, v) in enumerate(itens, start=1):
+        z = r % 2 == 0
+        _item_quadro(tbl.cell(r, 0), _cabe(nome.upper(), w * 3.0 / 5.7 - 8, tam), tam, z)
+        _item_quadro(tbl.cell(r, 1), brl(v), tam, z)
+        _item_quadro(tbl.cell(r, 2), pct(v / total, 1) if total else "-", tam, z)
+        if destaque is not None and r - 1 == destaque:
+            for c in range(3):
+                tbl.cell(r, c).text_frame.paragraphs[0].runs[0].font.bold = True
+    _total_quadro(tbl.cell(n - 1, 0), rot_total, tam)
+    _total_quadro(tbl.cell(n - 1, 1), brl(total), tam)
+    _total_quadro(tbl.cell(n - 1, 2), "100%" if total else "-", tam)
+
+
+def _slide_receita_custos_despesas(prs, resumo, ano, mes):
+    """Gráfico 1: receita x custos x despesas do mês."""
+    if not any(v for _, v in resumo):
+        return
+    s = _slide_conteudo(prs, f"Gerencial Report – RECEITA x CUSTOS x DESPESAS {mes:02d}/{ano}")
+    _pizza(s, 70, 105, 480, 400, [(n, v) for n, v in resumo], tam_rotulo=13)
+    receita = resumo[0][1]
+    tbl = _tabela(s, 575, 200, 330, [1.8, 1.9, 1.3], 4, 26)
+    for c, h in enumerate(["", "VALOR", "% DA RECEITA"]):
+        _cab_quadro(tbl.cell(0, c), h, 11)
+    for r, (nome, v) in enumerate(resumo, start=1):
+        _item_quadro(tbl.cell(r, 0), nome.upper(), 11, r % 2 == 0)
+        _item_quadro(tbl.cell(r, 1), brl(v), 11, r % 2 == 0)
+        _item_quadro(tbl.cell(r, 2), pct(v / receita, 1) if receita else "-", 11, r % 2 == 0)
+    sobra = receita - resumo[1][1] - resumo[2][1]
+    _texto(s, 575, 312, 330, 60,
+           [("Receita − custos − despesas operacionais:", {"tam": 11, "cor": CINZA_TEXTO}),
+            (brl(sobra) + (f" ({pct(sobra / receita, 1)} da receita)" if receita else ""),
+             {"tam": 13, "negrito": True, "cor": AZUL})])
+    _texto(s, 70, 505, 830, 20, "Percentuais do gráfico calculados sobre a soma de receita, custos e despesas "
+           "operacionais do mês (coluna TOTAL do relatório).", tam=8, italico=True, cor=CINZA_TEXTO)
+
+
+def _slide_custos_despesas(prs, gastos, ano, mes, maximo=9):
+    """Gráfico 2: custos e despesas por conta — qual gastou mais e quanto cada uma representa do total gasto."""
+    if not gastos:
+        return
+    total = sum(v for _, v in gastos)
+    itens = list(gastos[:maximo])
+    if len(gastos) > maximo:
+        resto = gastos[maximo:]
+        itens.append((f"Demais contas ({len(resto)})", sum(v for _, v in resto)))
+    s = _slide_conteudo(prs, f"Gerencial Report – CUSTOS E DESPESAS POR CATEGORIA {mes:02d}/{ano}")
+    _pizza(s, 40, 100, 500, 410, itens, tam_rotulo=10)
+    alt = min(20.0, 360 / (len(itens) + 2))
+    _tabela_pizza(s, 560, 110, 360, itens, total, "CATEGORIA", "TOTAL GASTO", destaque=0, alt=alt,
+                  tam=9 if alt < 18 else 10)
+    nome, v = gastos[0]
+    _texto(s, 560, 110 + alt * (len(itens) + 2) + 10, 360, 50,
+           [("Maior gasto do mês:", {"tam": 10, "cor": CINZA_TEXTO}),
+            (f"{nome} — {brl(v)} ({pct(v / total, 1)} do total gasto)", {"tam": 11, "negrito": True, "cor": AZUL})])
+    _texto(s, 40, 512, 860, 16, "Total gasto = custos operacionais + despesas operacionais do mês (coluna TOTAL do "
+           "relatório).", tam=8, italico=True, cor=CINZA_TEXTO)
+
+
+def gerar_pptx(caminho, empresa, ano, mes, base, dre, saldos, cfg, textos, graficos=False):
     prs = Presentation()
     prs.slide_width = _p(LARG)
     prs.slide_height = _p(ALT)
@@ -506,6 +637,11 @@ def gerar_pptx(caminho, empresa, ano, mes, base, dre, saldos, cfg, textos):
     _capa(prs, empresa, ano, mes)
     _servicos(prs)
     _slide_dre(prs, empresa, ano, mes, dre)  # a DRE detalhada vai só no Excel
+    if graficos:  # MS FESTAS: receita x custos x despesas e custos/despesas por categoria
+        from .ms_festas import dados_graficos
+        resumo, gastos = dados_graficos(dre)
+        _slide_receita_custos_despesas(prs, resumo, ano, mes)
+        _slide_custos_despesas(prs, gastos, ano, mes)
     _slide_saldos(prs, saldos, ano, mes)
     _slide_blocos(prs, f"Gerencial Report – RECEBIMENTOS {mes:02d}/{ano}", D.recebimentos(base, cfg),
                   f"TOTAL RECEBIMENTO {mes:02d}/{ano}")
