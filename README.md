@@ -53,6 +53,20 @@ da DRE: saldo inicial, entradas e saídas por grupo/conta, transferências, vari
 
 Os arquivos ficam salvos em `Documentos/Savian DRE/saidas/<empresa>/<AAAA-MM>/` e também podem ser baixados na própria tela.
 
+## MS FESTAS E EVENTOS (regras próprias)
+
+Só para a empresa MS FESTAS E EVENTOS (reconhecida pelo CNPJ 35.094.562 ou pelo nome):
+
+- **Plano de contas e Excel no modelo `FECHAMENTO MS FESTAS`**: o plano é aplicado automaticamente na primeira vez
+  (pode ser trocado em *Modelo de DRE*). O REPORT sai por conta (ITAÚ/STONE DJ CLUB = TOTAL FILIAL, ITAÚ/STONE MADAME =
+  TOTAL MATRIZ, TOTAL MS FESTAS), mais SALDOS, FORNECEDORES, FUNCIONÁRIOS, RECEBIMENTOS, TRANSFERÊNCIAS e INSIGHTS,
+  com a formatação copiada da planilha-modelo (`assets/modelos/`, só formatação, sem valores).
+- **Planilha à parte `Comparativos MS FESTAS MM_AAAA.xlsx`**: uma aba por mês e a aba de comparação (meses anteriores,
+  mês do report e a diferença), no layout do modelo `MS FESTAS REPORT COMPARATIVO`. Os meses anteriores são buscados no
+  OMIE; a quantidade é escolhida na aba *6. Análise e arquivos*.
+- **PowerPoint com dois gráficos de pizza**: receita x custos x despesas, e custos e despesas por categoria (qual gastou
+  mais e quanto cada uma representa do total gasto).
+
 ## Conferências
 
 - **TOTAL − BASE = 0**: tudo que está na base classificada entrou na DRE.
