@@ -46,7 +46,8 @@ PLANO = [
     ("040100", "PRESTADORES DE SERVIÇOS", "CUSTOS", "funcionarios", [
         ("040101", "Funcionários"), ("040102", "Dj Musicos"), ("040103", "Cachê Show (Performances, Bandas)"),
         ("040104", "Seguranças"), ("040105", "Coletor de Lixo"), ("040106", "Serviço de Manutenção "),
-        ("040110", CAIXINHA), ("040107", "Produção"), ("040108", "Tecnico Som"), ("040109", "Transporte")]),
+        ("040110", CAIXINHA), ("040107", "Produção"), ("040108", "Tecnico Som"), ("040109", "Transporte"),
+        ("040111", "Fotografia e Vídeo")]),
     ("040400", "LOJINHA", "CUSTOS", "", [("040112", "Ativo Circulante - Lojinha")]),
     ("040300", "FORNECEDORES", "CUSTOS", "fornecedores", [
         ("040301", "Fornecedores de Bebidas"), ("040302", "Gelo"), ("040303", "Fornecedores Alimenticios"),
@@ -77,6 +78,53 @@ PLANO = [
 VERSAO_MODELO = 2
 # categorias do OMIE que sempre vão para uma conta própria do modelo (versão em que entrou, grupo, conta)
 CATEGORIAS_FIXAS = [(2, CAIXINHA, "040100", CAIXINHA)]
+# categorias do OMIE (nome normalizado) -> linha da planilha base (grupo, conta), para não criar grupos nem repetir linhas
+DE_PARA = {
+    "iss": ("020100", "(-) ISS"),
+    "simples nacional (das)": ("020100", "(-)DAS SIMPLES NACIONAL"),
+    "parcelamento": ("020100", "(-) OUTROS IMPOSTOS"),
+    "outras taxas": ("020100", "(-) OUTROS IMPOSTOS"),
+    "inss": ("020100", "(-) OUTROS IMPOSTOS"),
+    "funcionario": ("040100", "Funcionários"),
+    "dj - musico": ("040100", "Dj Musicos"),
+    "cache para show": ("040100", "Cachê Show (Performances, Bandas)"),
+    "seguranca": ("040100", "Seguranças"),
+    "policia": ("040100", "Seguranças"),
+    "coletor lixo": ("040100", "Coletor de Lixo"),
+    "som": ("040100", "Tecnico Som"),
+    "uber": ("040100", "Transporte"),
+    "fotografia e video": ("040100", "Fotografia e Vídeo"),
+    "manutencao de imobilizado": ("040100", "Serviço de Manutenção"),
+    "manutencao de veiculo": ("040100", "Serviço de Manutenção"),
+    "caixinha de materiais - manutencao": ("040100", CAIXINHA),
+    "bebidas - distribuidora": ("040300", "Fornecedores de Bebidas"),
+    "alimentos": ("040300", "Fornecedores Alimenticios"),
+    "alimentacao": ("040300", "Fornecedores Alimenticios"),
+    "moveis e utensilios": ("040300", "Móveis e Utensílios (Cadeiras)"),
+    "locacao": ("040200", "Locação/Aquisição de Equipamentos"),
+    "locacao de equipamentos recreativos": ("040200", "Locação/Aquisição de Equipamentos"),
+    "aluguel de equipamento": ("040200", "Locação/Aquisição de Equipamentos"),
+    "equipamento para show": ("040200", "Locação/Aquisição de Equipamentos"),
+    "manutencao de equipamento": ("040200", "Manutenção de Equipamentos"),
+    "maquinas e equipamentos": ("040200", "Máquinas e Equipamentos (Acustica Gerador)"),
+    "contabilidade": ("060100", "Savian Contabilidade"),
+    "ponto de venda - sistema": ("060200", "Ponto de Venda"),
+    "sistemas": ("060300", "SOFTWARE"),
+    "equipamentos de informatica": ("060300", "HARDWARE"),
+    "ti": ("060300", "ASSESSORIA EM T.I"),
+    "marketing": ("060400", "Marketing / Comissões"),
+    "comissoes": ("060400", "Marketing / Comissões"),
+    "assessoria de imprensa": ("060400", "Marketing / Comissões"),
+    "telefonia": ("060400", "Telefonia/Internet"),
+    "ecad direitos": ("060400", "ECAD Direitos de Imagem"),
+    "aluguel": ("060500", "Locação das Casas"),
+    "condominio": ("060500", "Condominios"),
+    "reembolso socio - gerson": ("060700", "Socios (Reembolsos, Assitencia Médica)"),
+    "assistencia medica": ("060700", "Socios (Reembolsos, Assitencia Médica)"),
+    "rendimentos de aplicacoes": ("080100", "Rendimento Bancário"),
+    "operadora de cartao pre pago": ("080200", "Operadora de Cartão"),
+    "tarifa maquininha": ("080200", "Operadora de Cartão"),
+}
 # rótulos dos quadros de FUNCIONÁRIOS no modelo
 ROTULOS_FUNC = {"funcionarios": "FUNCIONÁRIO", "coletor de lixo": "COLETOR DE LIXO", "dj musicos": "DJ",
                 "cache show (performances, bandas)": "CACHE PARA BANDA", "servico de manutencao": "MANUTENÇÃO"}
@@ -151,6 +199,24 @@ def atualizar_modelo(cfg, mapa):
         cfg["contas_modelo"] = modelo()["contas"]
         _fixar_categorias(mapa, anterior)
     return True
+
+
+def precisa_aplicar_de_para(cfg):
+    """O de-para roda uma única vez: depois disso, o que for alterado na aba Classificação vale."""
+    return cfg.get("modelo_dre") == NOME_MODELO and not cfg.get("ms_festas_de_para_aplicado")
+
+
+def aplicar_de_para(cfg, mapa):
+    """Realoca as categorias para as linhas da planilha base e tira os grupos criados que ficaram sem uso."""
+    for chave, (grupo, conta) in DE_PARA.items():
+        if chave in mapa:
+            mapa[chave].update(grupo=grupo, conta=conta, automatico=False)
+    criados = {g[:6] for g in cfg.get("grupos_criados") or []}
+    em_uso = {m.get("grupo") for m in mapa.values()}
+    cfg["grupos"] = [g for g in cfg["grupos"] if g[0] not in criados or g[0] in em_uso]
+    cfg["grupos_criados"] = [g for g in cfg.get("grupos_criados") or [] if g[:6] in em_uso]
+    cfg["contas_modelo"] = modelo()["contas"]
+    cfg["ms_festas_de_para_aplicado"] = True
 
 
 def preparar_colunas(cfg, nomes_contas):

@@ -558,6 +558,11 @@ def tela_report():
     elif eh_ms and ms_festas.atualizar_modelo(emp["config"], emp["mapa"]):
         db.salvar_config(emp["id"], emp["config"])
         db.salvar_mapa(emp["id"], emp["mapa"])
+    if eh_ms and ms_festas.precisa_aplicar_de_para(emp["config"]):
+        ms_festas.aplicar_de_para(emp["config"], emp["mapa"])
+        db.salvar_config(emp["id"], emp["config"])
+        db.salvar_mapa(emp["id"], emp["mapa"])
+        st.info("Categorias realocadas para as linhas da planilha base do **FECHAMENTO MS FESTAS**.", icon="📋")
     cfg = copy.deepcopy(emp["config"])
     mapa = emp["mapa"]
     if eh_ms:
