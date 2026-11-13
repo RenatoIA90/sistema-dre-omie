@@ -31,6 +31,7 @@ CNPJ_RAIZ = "35094562"
 TITULO_TOTAL = "TOTAL MS FESTAS"
 MESES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 
+CAIXINHA = "Caixinha de Materiais - MANUTENÇÃO"
 # Plano do modelo, na ordem em que aparece no REPORT: código, nome, seção, relatório, contas (código, nome).
 PLANO = [
     ("010100", "RECEIMENTOS", "ENTRADAS", "recebimentos", [
@@ -45,7 +46,7 @@ PLANO = [
     ("040100", "PRESTADORES DE SERVIÇOS", "CUSTOS", "funcionarios", [
         ("040101", "Funcionários"), ("040102", "Dj Musicos"), ("040103", "Cachê Show (Performances, Bandas)"),
         ("040104", "Seguranças"), ("040105", "Coletor de Lixo"), ("040106", "Serviço de Manutenção "),
-        ("040107", "Produção"), ("040108", "Tecnico Som"), ("040109", "Transporte")]),
+        ("040110", CAIXINHA), ("040107", "Produção"), ("040108", "Tecnico Som"), ("040109", "Transporte")]),
     ("040400", "LOJINHA", "CUSTOS", "", [("040112", "Ativo Circulante - Lojinha")]),
     ("040300", "FORNECEDORES", "CUSTOS", "fornecedores", [
         ("040301", "Fornecedores de Bebidas"), ("040302", "Gelo"), ("040303", "Fornecedores Alimenticios"),
@@ -71,6 +72,11 @@ PLANO = [
         ("080201", "Operadora de Cartão"), ("080202", "Tarifa Bancária")]),
     ("090200", "DESPESAS NÃO OPERACIONAIS", "NAO_OPERACIONAL", "", [("090201", "DESPESAS ITAU")]),
 ]
+# Versão do plano acima. Ao subir a versão, atualizar_modelo() leva as mudanças às empresas já configuradas.
+# v2: "Caixinha de Materiais - MANUTENÇÃO" em linha própria (040110), logo abaixo de 040106-Serviço de Manutenção.
+VERSAO_MODELO = 2
+# categorias do OMIE que sempre vão para uma conta própria do modelo (versão em que entrou, grupo, conta)
+CATEGORIAS_FIXAS = [(2, CAIXINHA, "040100", CAIXINHA)]
 # rótulos dos quadros de FUNCIONÁRIOS no modelo
 ROTULOS_FUNC = {"funcionarios": "FUNCIONÁRIO", "coletor de lixo": "COLETOR DE LIXO", "dj musicos": "DJ",
                 "cache show (performances, bandas)": "CACHE PARA BANDA", "servico de manutencao": "MANUTENÇÃO"}
@@ -119,7 +125,32 @@ def aplicar_modelo(cfg, mapa):
     cfg["modelo_dre"] = NOME_MODELO
     cfg["grupos_criados"] = []
     cfg["ms_festas_modelo_aplicado"] = True
+    cfg["ms_festas_modelo_versao"] = VERSAO_MODELO
     D.reclassificar(mapa, cfg)
+    _fixar_categorias(mapa, 0)
+
+
+def _fixar_categorias(mapa, versao_anterior):
+    for versao, categoria, grupo, conta in CATEGORIAS_FIXAS:
+        m = mapa.get(norm(categoria))
+        if versao > versao_anterior and m is not None:
+            m.update(grupo=grupo, conta=conta, automatico=False)
+
+
+def atualizar_modelo(cfg, mapa):
+    """Leva as mudanças do plano MS FESTAS (VERSAO_MODELO) a uma empresa que já usa o modelo: contas novas do
+    modelo e categorias que passaram a ter conta própria (ex.: Caixinha de Materiais - MANUTENÇÃO, que antes
+    estava classificada em 040106-Serviço de Manutenção). Roda uma vez por versão. Devolve True se mudou algo."""
+    if not cfg.get("ms_festas_modelo_aplicado"):
+        return False
+    anterior = cfg.get("ms_festas_modelo_versao", 1)
+    if anterior >= VERSAO_MODELO:
+        return False
+    cfg["ms_festas_modelo_versao"] = VERSAO_MODELO
+    if cfg.get("modelo_dre") == NOME_MODELO:
+        cfg["contas_modelo"] = modelo()["contas"]
+        _fixar_categorias(mapa, anterior)
+    return True
 
 
 def preparar_colunas(cfg, nomes_contas):

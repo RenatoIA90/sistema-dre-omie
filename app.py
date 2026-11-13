@@ -555,6 +555,9 @@ def tela_report():
         db.salvar_mapa(emp["id"], emp["mapa"])
         st.info("Aplicado o plano de contas do modelo **FECHAMENTO MS FESTAS** a esta empresa. Confira a "
                 "classificação na aba **1. Classificação**.", icon="📋")
+    elif eh_ms and ms_festas.atualizar_modelo(emp["config"], emp["mapa"]):
+        db.salvar_config(emp["id"], emp["config"])
+        db.salvar_mapa(emp["id"], emp["mapa"])
     cfg = copy.deepcopy(emp["config"])
     mapa = emp["mapa"]
     if eh_ms:
