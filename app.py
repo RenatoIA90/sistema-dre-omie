@@ -12,7 +12,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from core import analise, apresentacao, db, dre, excel, fluxo, modelos, ms_festas, recebimento
+from core import analise, apresentacao, db, dre, excel, fluxo, modelos, ms_festas, psp, recebimento
 from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
@@ -334,6 +334,7 @@ def tela_empresas():
 def todos_modelos():
     return {**{f"{n} (pronto)": m for n, m in modelos.MODELOS_PRONTOS.items()},
             ms_festas.NOME_MODELO: ms_festas.modelo(),
+            psp.NOME_MODELO: psp.modelo(),
             **{f"{n} (importado)": m for n, m in db.listar_modelos().items()}}
 
 
@@ -563,6 +564,14 @@ def tela_report():
         db.salvar_config(emp["id"], emp["config"])
         db.salvar_mapa(emp["id"], emp["mapa"])
         st.info("Categorias realocadas para as linhas da planilha base do **FECHAMENTO MS FESTAS**.", icon="📋")
+    eh_psp = psp.eh_psp(emp)
+    if eh_psp and psp.precisa_aplicar_modelo(emp["config"]):
+        # PSP HUB: plano do modelo REPORT - FECHAMENTO PSP (aplicado uma vez; pode ser trocado depois)
+        psp.aplicar_modelo(emp["config"], emp["mapa"])
+        db.salvar_config(emp["id"], emp["config"])
+        db.salvar_mapa(emp["id"], emp["mapa"])
+        st.info("Aplicado o plano de contas do modelo **REPORT - FECHAMENTO PSP** a esta empresa. As linhas da DRE "
+                "são os fornecedores e clientes, como na planilha modelo.", icon="📋")
     cfg = copy.deepcopy(emp["config"])
     mapa = emp["mapa"]
     if eh_ms:
@@ -586,6 +595,9 @@ def tela_report():
     if eh_ms:
         base = ms_festas.montar_base(dados["lancs"], cfg, mapa)
         d = ms_festas.montar_dre(base, cfg)
+    elif eh_psp:
+        base = psp.montar_base(dados["lancs"], cfg, mapa)
+        d = psp.montar_dre(base, cfg)
     else:
         base = dre.montar_base(dados["lancs"], cfg, mapa)
         d = dre.montar_dre(base, cfg)
@@ -990,6 +1002,38 @@ def gerar_comparativo_ms(emp, cfg, ano, mes, lancs, sel, n_ant, pasta):
     return arq
 
 
+def gerar_excel_psp(emp, cfg, ano, mes, lancs, sel, xlsx):
+    """PSP HUB: REPORT com o mesmo mês do ano anterior, o mês do report e o acumulado do ano (meses buscados
+    no OMIE). Sem App Key, ou se o OMIE falhar, sai só com o mês do report e avisa."""
+    periodos = {psp.ANT: [], psp.MES: [(ano, mes, lancs)], psp.YTD: [(ano, mes, lancs)]}
+    if not emp["app_key"] or not emp["app_secret"]:
+        st.warning("PSP: sem App Key/App Secret do OMIE não dá para buscar o ano anterior e o acumulado do ano; "
+                   "essas colunas saíram só com o mês do report.")
+    else:
+        try:
+            barra = st.progress(0.0, "Buscando meses no OMIE...")
+            buscar = [(ano - 1, mes)] + [(ano, m) for m in range(1, mes)]
+            achados = []
+            for i, (a, m) in enumerate(buscar):
+                barra.progress(i / len(buscar), f"Buscando {m:02d}/{a} no OMIE...")
+                achados.append((a, m, lancs_do_mes(emp, a, m, sel)))
+            barra.empty()
+            periodos[psp.ANT] = achados[:1]
+            periodos[psp.YTD] = achados[1:] + [(ano, mes, lancs)]
+        except OmieErro as e:
+            st.warning(f"PSP: erro ao buscar meses no OMIE ({e}); o ano anterior e o acumulado saíram só com o mês "
+                       "do report.")
+    c = copy.deepcopy(cfg)
+    mapa = emp["mapa"]
+    d3, base_mes, novas = psp.montar_periodos(periodos, c, mapa)
+    if novas:
+        db.salvar_mapa(emp["id"], mapa)
+    if c.get("grupos") != cfg.get("grupos"):
+        emp["config"]["grupos"], emp["config"]["grupos_criados"] = c["grupos"], c.get("grupos_criados", [])
+        db.salvar_config(emp["id"], emp["config"])
+    return psp.gerar_excel(xlsx, emp, ano, mes, d3, base_mes)
+
+
 def aba_arquivos(emp, cfg, base, d, saldos, ano, mes, lancs=None, sel=()):
     textos = analise.gerar_textos(emp, ano, mes, base, d, saldos, cfg)
     st.caption("Textos gerados automaticamente a partir dos números. Edite à vontade antes de gerar a apresentação.")
@@ -1009,6 +1053,12 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes, lancs=None, sel=()):
         n_ant = st.number_input("Meses anteriores no Comparativo MS FESTAS", 0, 11, 1, key=k + "nant",
                                 help="0 = não gerar o comparativo. 1 = mês anterior x mês do report (como no modelo).")
 
+    eh_psp = psp.eh_psp(emp)
+    if eh_psp:
+        st.caption("PSP HUB: o Excel sai no modelo **REPORT - FECHAMENTO PSP** — linhas por fornecedor/cliente e "
+                   "colunas com o mesmo mês do ano anterior, o mês, a diferença (AH) e o acumulado do ano "
+                   "(meses buscados no OMIE).")
+
     if st.button("📦 Gerar Excel e PowerPoint", type="primary"):
         pasta = os.path.join(db.PASTA_DADOS, "saidas", emp["nome"].replace("/", "-"), f"{ano}-{mes:02d}")
         os.makedirs(pasta, exist_ok=True)
@@ -1020,6 +1070,8 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes, lancs=None, sel=()):
         with st.spinner("Gerando arquivos..."):
             if eh_ms:
                 ms_festas.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg, txts)
+            elif eh_psp and lancs is not None:
+                gerar_excel_psp(emp, cfg, ano, mes, lancs, list(sel or []), xlsx)
             else:
                 excel.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg)
             apresentacao.gerar_pptx(pptx, emp, ano, mes, base, d, saldos, cfg, txts, graficos=eh_ms)
