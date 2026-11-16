@@ -158,7 +158,7 @@ CATEGORIAS = [
     ("Material Para Evento", "060400"), ("Consultoria", "060500"), ("Advogados", "060600"),
     ("Reembolso de despesas", "060700"), ("Retirada de Socios", "060700"), ("Cursos e treinamentos", "060800"),
     ("Rendimentos de Aplicações", "080100"), ("Empréstimos Bancários", "080100"),
-    ("Juros sobre Empréstimos", "080200"), ("Tarifas Bancárias", "080200"), ("IOF", "080200"),
+    ("Juros sobre Empréstimos", "080200"), ("Pagamento de Empréstimos", "080200"), ("Tarifas Bancárias", "080200"), ("IOF", "080200"),
     ("Receitas não identificadas", "090100"),
     ("Adiantamento de Clientes", "010200"), ("DCTFWEB", "020100"), ("Vale Transporte", "040200"),
     ("Grafica", "060300"), ("Certificação", "060400"), ("Demais Despesas", "060400"),
@@ -209,6 +209,11 @@ def modelo():
     return {"grupos": grupos, "contas": [list(c) for c in CATEGORIAS]}
 
 
+# Versão do modelo acima. Ao subir a versão, atualizar_modelo() leva as mudanças às empresas já configuradas.
+# v2: "Pagamento de Empréstimos" em 080200-DESPESAS FINANCEIRAS (linha EMPRESTIMOS), e não num grupo não operacional.
+VERSAO_MODELO = 2
+
+
 def precisa_aplicar_modelo(cfg):
     """Aplica o modelo PSP uma única vez; se depois o usuário trocar o modelo, a escolha dele vale."""
     return not cfg.get("psp_modelo_aplicado")
@@ -221,7 +226,25 @@ def aplicar_modelo(cfg, mapa):
     cfg["modelo_dre"] = NOME_MODELO
     cfg["grupos_criados"] = []
     cfg["psp_modelo_aplicado"] = True
+    cfg["psp_modelo_versao"] = VERSAO_MODELO
     D.reclassificar(mapa, cfg)
+
+
+def atualizar_modelo(cfg, mapa):
+    """Leva as mudanças do modelo PSP (VERSAO_MODELO) a uma empresa que já usa o modelo: refaz as classificações
+    automáticas (as revistas na aba Classificação ficam como estão) e tira os grupos criados que ficaram sem uso.
+    Roda uma vez por versão. Devolve True se mudou algo."""
+    if not cfg.get("psp_modelo_aplicado") or cfg.get("psp_modelo_versao", 1) >= VERSAO_MODELO:
+        return False
+    cfg["psp_modelo_versao"] = VERSAO_MODELO
+    if cfg.get("modelo_dre") == NOME_MODELO:
+        cfg["contas_modelo"] = modelo()["contas"]
+        D.reclassificar(mapa, cfg)
+        em_uso = {m.get("grupo") for m in mapa.values()}
+        criados = {g[:6] for g in cfg.get("grupos_criados") or []}
+        cfg["grupos"] = [g for g in cfg["grupos"] if g[0] not in criados or g[0] in em_uso]
+        cfg["grupos_criados"] = [g for g in cfg.get("grupos_criados") or [] if g[:6] in em_uso]
+    return True
 
 
 # ------------------------------------------------------------------ fornecedor -> linha do modelo

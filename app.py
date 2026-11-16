@@ -489,6 +489,11 @@ def aplicar_modelos_especiais(emp):
         db.salvar_mapa(emp["id"], emp["mapa"])
         avisos.append("Aplicado o plano de contas do modelo **REPORT - FECHAMENTO PSP** a esta empresa. As linhas da "
                       "DRE são os fornecedores e clientes, como na planilha modelo.")
+    elif psp.eh_psp(emp) and psp.atualizar_modelo(emp["config"], emp["mapa"]):
+        db.salvar_config(emp["id"], emp["config"])
+        db.salvar_mapa(emp["id"], emp["mapa"])
+        avisos.append("Modelo **REPORT - FECHAMENTO PSP** atualizado: Pagamento de Empréstimos agora entra em "
+                      "**080200-DESPESAS FINANCEIRAS** (linha EMPRESTIMOS).")
     return avisos
 
 
