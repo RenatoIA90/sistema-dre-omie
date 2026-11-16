@@ -7,12 +7,13 @@ import getpass
 import html
 import io
 import os
+import zipfile
 from datetime import date
 
 import pandas as pd
 import streamlit as st
 
-from core import analise, apresentacao, db, dre, excel, fluxo, modelos, ms_festas, psp, recebimento
+from core import analise, apresentacao, db, dre, excel, fluxo, modelos, ms_festas, periodo, psp, recebimento
 from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
@@ -462,6 +463,69 @@ def tela_plano():
 # =====================================================================
 # FECHAMENTO
 # =====================================================================
+def aplicar_modelos_especiais(emp):
+    """Modelos exclusivos (MS FESTAS, PSP HUB): aplicados uma vez por empresa. Devolve os avisos para a tela."""
+    avisos = []
+    if ms_festas.eh_ms_festas(emp):
+        if ms_festas.precisa_aplicar_modelo(emp["config"]):
+            # plano de contas do modelo FECHAMENTO MS FESTAS (aplicado uma vez; pode ser trocado depois)
+            ms_festas.aplicar_modelo(emp["config"], emp["mapa"])
+            db.salvar_config(emp["id"], emp["config"])
+            db.salvar_mapa(emp["id"], emp["mapa"])
+            avisos.append("Aplicado o plano de contas do modelo **FECHAMENTO MS FESTAS** a esta empresa. Confira a "
+                          "classificação na aba **1. Classificação**.")
+        elif ms_festas.atualizar_modelo(emp["config"], emp["mapa"]):
+            db.salvar_config(emp["id"], emp["config"])
+            db.salvar_mapa(emp["id"], emp["mapa"])
+        if ms_festas.precisa_aplicar_de_para(emp["config"]):
+            ms_festas.aplicar_de_para(emp["config"], emp["mapa"])
+            db.salvar_config(emp["id"], emp["config"])
+            db.salvar_mapa(emp["id"], emp["mapa"])
+            avisos.append("Categorias realocadas para as linhas da planilha base do **FECHAMENTO MS FESTAS**.")
+    if psp.eh_psp(emp) and psp.precisa_aplicar_modelo(emp["config"]):
+        # plano do modelo REPORT - FECHAMENTO PSP (aplicado uma vez; pode ser trocado depois)
+        psp.aplicar_modelo(emp["config"], emp["mapa"])
+        db.salvar_config(emp["id"], emp["config"])
+        db.salvar_mapa(emp["id"], emp["mapa"])
+        avisos.append("Aplicado o plano de contas do modelo **REPORT - FECHAMENTO PSP** a esta empresa. As linhas da "
+                      "DRE são os fornecedores e clientes, como na planilha modelo.")
+    return avisos
+
+
+def tipo_modelo(emp):
+    return "ms" if ms_festas.eh_ms_festas(emp) else "psp" if psp.eh_psp(emp) else ""
+
+
+def preparar_mes(emp, ano, mes, lancs):
+    """Classifica os lançamentos do mês e monta base e DRE no modelo da empresa. Categorias novas e grupos
+    criados ficam salvos no cadastro. Devolve (cfg do mês, base, dre, grupos criados)."""
+    modelo = tipo_modelo(emp)
+    cfg = copy.deepcopy(emp["config"])
+    mapa = emp["mapa"]
+    if modelo == "ms":
+        ms_festas.preparar_colunas(cfg, [c["descricao"] for c in contas_conhecidas(emp)]
+                                   + sorted({l.get("conta_corrente") or "" for l in lancs} - {""}))
+    antes = list(cfg.get("grupos_criados") or [])
+    if dre.completar_mapeamento(mapa, lancs, cfg):
+        db.salvar_mapa(emp["id"], mapa)
+    criados = [g for g in cfg.get("grupos_criados") or [] if g not in antes]
+    if criados:
+        emp["config"]["grupos"] = cfg["grupos"]
+        emp["config"]["grupos_criados"] = cfg["grupos_criados"]
+        db.salvar_config(emp["id"], emp["config"])
+    cfg["rateios_mes"] = cfg.get("rateios", {}).get(f"{ano}-{mes:02d}", [])
+    if modelo == "ms":
+        base = ms_festas.montar_base(lancs, cfg, mapa)
+        d = ms_festas.montar_dre(base, cfg)
+    elif modelo == "psp":
+        base = psp.montar_base(lancs, cfg, mapa)
+        d = psp.montar_dre(base, cfg)
+    else:
+        base = dre.montar_base(lancs, cfg, mapa)
+        d = dre.montar_dre(base, cfg)
+    return cfg, base, d, criados
+
+
 def tela_report():
     topo("Reports BPO")
     avisos_pendentes()
@@ -507,6 +571,8 @@ def tela_report():
     if tipo == REL_RECEB:
         tela_recebimento(*filtros)
         return
+    if tipo == "DRE":
+        secao_periodo(emp, sel)
     puxar = puxar or st.session_state.pop("rep_auto", False)
 
     chave = f"dados_{emp['id']}_{ano}_{mes}_{'-'.join(sorted(sel))}"
@@ -548,59 +614,15 @@ def tela_report():
         ultimas_geracoes()
         return
 
-    eh_ms = ms_festas.eh_ms_festas(emp)
-    if eh_ms and ms_festas.precisa_aplicar_modelo(emp["config"]):
-        # MS FESTAS: plano de contas do modelo FECHAMENTO MS FESTAS (aplicado uma vez; pode ser trocado depois)
-        ms_festas.aplicar_modelo(emp["config"], emp["mapa"])
-        db.salvar_config(emp["id"], emp["config"])
-        db.salvar_mapa(emp["id"], emp["mapa"])
-        st.info("Aplicado o plano de contas do modelo **FECHAMENTO MS FESTAS** a esta empresa. Confira a "
-                "classificação na aba **1. Classificação**.", icon="📋")
-    elif eh_ms and ms_festas.atualizar_modelo(emp["config"], emp["mapa"]):
-        db.salvar_config(emp["id"], emp["config"])
-        db.salvar_mapa(emp["id"], emp["mapa"])
-    if eh_ms and ms_festas.precisa_aplicar_de_para(emp["config"]):
-        ms_festas.aplicar_de_para(emp["config"], emp["mapa"])
-        db.salvar_config(emp["id"], emp["config"])
-        db.salvar_mapa(emp["id"], emp["mapa"])
-        st.info("Categorias realocadas para as linhas da planilha base do **FECHAMENTO MS FESTAS**.", icon="📋")
-    eh_psp = psp.eh_psp(emp)
-    if eh_psp and psp.precisa_aplicar_modelo(emp["config"]):
-        # PSP HUB: plano do modelo REPORT - FECHAMENTO PSP (aplicado uma vez; pode ser trocado depois)
-        psp.aplicar_modelo(emp["config"], emp["mapa"])
-        db.salvar_config(emp["id"], emp["config"])
-        db.salvar_mapa(emp["id"], emp["mapa"])
-        st.info("Aplicado o plano de contas do modelo **REPORT - FECHAMENTO PSP** a esta empresa. As linhas da DRE "
-                "são os fornecedores e clientes, como na planilha modelo.", icon="📋")
-    cfg = copy.deepcopy(emp["config"])
+    for msg in aplicar_modelos_especiais(emp):
+        st.info(msg, icon="📋")
+    cfg, base, d, criados = preparar_mes(emp, int(ano), int(mes), dados["lancs"])
     mapa = emp["mapa"]
-    if eh_ms:
-        ms_festas.preparar_colunas(cfg, [c["descricao"] for c in contas_conhecidas(emp)]
-                                   + sorted({l.get("conta_corrente") or "" for l in dados["lancs"]} - {""}))
-    antes = list(cfg.get("grupos_criados") or [])
-    novas = dre.completar_mapeamento(mapa, dados["lancs"], cfg)
-    if novas:
-        db.salvar_mapa(emp["id"], mapa)
-    criados = [g for g in cfg.get("grupos_criados") or [] if g not in antes]
     if criados:
-        emp["config"]["grupos"] = cfg["grupos"]
-        emp["config"]["grupos_criados"] = cfg["grupos_criados"]
-        db.salvar_config(emp["id"], emp["config"])
         st.info(f"{len(criados)} categoria(s) deste mês não existiam no modelo de DRE da empresa e viraram grupos "
                 "novos, no mesmo padrão: " + ", ".join(f"**{g}**" for g in criados)
                 + ". Confira na aba **1. Classificação**.", icon="🆕")
-    cfg["rateios_mes"] = cfg.get("rateios", {}).get(f"{ano}-{mes:02d}", [])
     saldos = dados["saldos"]
-
-    if eh_ms:
-        base = ms_festas.montar_base(dados["lancs"], cfg, mapa)
-        d = ms_festas.montar_dre(base, cfg)
-    elif eh_psp:
-        base = psp.montar_base(dados["lancs"], cfg, mapa)
-        d = psp.montar_dre(base, cfg)
-    else:
-        base = dre.montar_base(dados["lancs"], cfg, mapa)
-        d = dre.montar_dre(base, cfg)
     vistas = sorted({(l.get("projeto") if cfg["modo_colunas"] == "projeto" else l.get("conta_corrente")) or ""
                      for l in dados["lancs"]} - {""})
     st.session_state[f"colunas_vistas_{emp['id']}"] = vistas
@@ -962,14 +984,115 @@ def mes_anterior(ano, mes, n):
     return i // 12, i % 12 + 1
 
 
-def lancs_do_mes(emp, ano, mes, sel):
-    """Lançamentos de um mês: do que já foi puxado nesta sessão ou da API do OMIE."""
+def dados_do_mes(emp, ano, mes, sel):
+    """Lançamentos e saldos de um mês: do que já foi puxado nesta sessão ou da API do OMIE."""
     k = f"dados_{emp['id']}_{ano}_{mes}_{'-'.join(sorted(sel))}"
     if k not in st.session_state:
         cli = OmieCliente(emp["app_key"], emp["app_secret"])
         r = baixar_mes(cli, ano, mes, sel or None)
         st.session_state[k] = {"lancs": r["lancamentos"], "saldos": r["saldos"]}
-    return st.session_state[k]["lancs"]
+    return st.session_state[k]
+
+
+def lancs_do_mes(emp, ano, mes, sel):
+    return dados_do_mes(emp, ano, mes, sel)["lancs"]
+
+
+def secao_periodo(emp, sel):
+    """Relatórios de vários meses de uma vez: o fechamento de cada mês + o Excel do período (YTD)."""
+    with st.expander("📅 Relatórios de um período (vários meses de uma vez)"):
+        st.caption("Gera o Excel do fechamento de **cada mês** do período (no modelo da empresa) e um **Excel do "
+                   "período**, com uma coluna por mês e o TOTAL somando o período (year to date). Os meses são "
+                   "buscados no OMIE, com as contas correntes selecionadas acima.")
+        hoje = date.today()
+        k = f"per_{emp['id']}"
+        c1, c2, c3, c4, c5 = st.columns([1, 1.1, 1, 1.1, 2.2], vertical_alignment="bottom")
+        m0 = c1.selectbox("De (mês)", list(range(1, 13)), index=0, format_func=lambda m: f"{m:02d}", key=k + "m0")
+        a0 = c2.number_input("Ano inicial", 2015, 2100, value=hoje.year, key=k + "a0")
+        m1 = c3.selectbox("Até (mês)", list(range(1, 13)), index=(hoje.month - 2) % 12,
+                          format_func=lambda m: f"{m:02d}", key=k + "m1")
+        a1 = c4.number_input("Ano final", 2015, 2100, value=hoje.year if hoje.month > 1 else hoje.year - 1,
+                             key=k + "a1")
+        gerar = c5.button("Gerar relatórios do período", type="primary", width="stretch", key=k + "btn")
+        com_pptx = st.checkbox("Gerar também o PowerPoint de cada mês", value=False, key=k + "pptx")
+        if gerar:
+            gerar_periodo(emp, list(sel or []), int(a0), int(m0), int(a1), int(m1), com_pptx)
+        res = st.session_state.get(k + "arqs")
+        if res and all(os.path.exists(x) for x in res[:2]):
+            arq, zp, n = res
+            b1, b2 = st.columns(2)
+            with open(arq, "rb") as f:
+                b1.download_button("⬇️ Baixar Excel do período (YTD)", f.read(), file_name=os.path.basename(arq),
+                                   mime=MIME_XLSX, key=k + "dl1")
+            with open(zp, "rb") as f:
+                b2.download_button(f"⬇️ Baixar todos os arquivos ({n} meses + período, .zip)", f.read(),
+                                   file_name=os.path.basename(zp), mime="application/zip", key=k + "dl2")
+
+
+def gerar_periodo(emp, sel, a0, m0, a1, m1, com_pptx):
+    if not emp["app_key"] or not emp["app_secret"]:
+        st.error("Cadastre a App Key e o App Secret desta empresa para buscar os meses no OMIE.")
+        return
+    sel = sel or list(emp["config"].get("contas_ativas") or [])  # vazio = todas as contas
+    meses = periodo.meses_entre(a0, m0, a1, m1)
+    if not meses:
+        st.error("O mês inicial é depois do mês final.")
+        return
+    if len(meses) > periodo.MAX_MESES:
+        st.error(f"Escolha um período de até {periodo.MAX_MESES} meses.")
+        return
+    for msg in aplicar_modelos_especiais(emp):
+        st.info(msg, icon="📋")
+    modelo = tipo_modelo(emp)
+    nome = emp["nome"].replace("/", "-")
+    raiz = os.path.join(db.PASTA_DADOS, "saidas", nome)
+    bases, saldos, arquivos, criados_tot = [], [], [], []
+    barra = st.progress(0.0, "Buscando no OMIE...")
+    a, m = meses[0]
+    try:
+        for i, (a, m) in enumerate(meses):
+            barra.progress(i / (len(meses) + 1), f"{m:02d}/{a}: buscando no OMIE e gerando o fechamento...")
+            dados = dados_do_mes(emp, a, m, sel)
+            cfg, base, d, criados = preparar_mes(emp, a, m, dados["lancs"])
+            criados_tot += [g for g in criados if g not in criados_tot]
+            pasta = os.path.join(raiz, f"{a}-{m:02d}")
+            os.makedirs(pasta, exist_ok=True)
+            xlsx = os.path.join(pasta, f"FECHAMENTO {nome} {m:02d}_{a}.xlsx")
+            pptx = os.path.join(pasta, f"{nome} REPORT {m:02d}_{a}.pptx")
+            if modelo == "ms":
+                ms_festas.gerar_excel(xlsx, emp, a, m, base, d, dados["saldos"], cfg)
+            elif modelo == "psp":
+                gerar_excel_psp(emp, cfg, a, m, dados["lancs"], sel, xlsx)
+            else:
+                excel.gerar_excel(xlsx, emp, a, m, base, d, dados["saldos"], cfg)
+            if com_pptx:
+                txts = analise.gerar_textos(emp, a, m, base, d, dados["saldos"], cfg)
+                apresentacao.gerar_pptx(pptx, emp, a, m, base, d, dados["saldos"], cfg, txts, graficos=modelo == "ms")
+            tem_pptx = os.path.exists(pptx)  # sem gerar agora, mantém o PowerPoint que já existia do mês
+            db.registrar_geracao(emp["id"], a, m, getpass.getuser(), xlsx, pptx if tem_pptx else "")
+            arquivos += [xlsx] + ([pptx] if com_pptx else [])
+            bases.append((a, m, base))
+            saldos.append(dados["saldos"])
+    except OmieErro as e:
+        barra.empty()
+        st.error(f"Erro ao buscar {m:02d}/{a} no OMIE: {e}")
+        return
+    barra.progress(len(meses) / (len(meses) + 1), "Gerando o Excel do período...")
+    pasta = os.path.join(raiz, f"PERIODO {m0:02d}-{a0} A {m1:02d}-{a1}")
+    os.makedirs(pasta, exist_ok=True)
+    arq = os.path.join(pasta, f"FECHAMENTO {nome} PERIODO {m0:02d}_{a0} A {m1:02d}_{a1}.xlsx")
+    periodo.gerar_excel(arq, emp, bases, saldos, copy.deepcopy(emp["config"]), modelo)
+    zp = os.path.join(pasta, f"FECHAMENTOS {nome} {m0:02d}_{a0} A {m1:02d}_{a1}.zip")
+    with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(arq, os.path.basename(arq))
+        for x in arquivos:
+            z.write(x, os.path.basename(x))
+    barra.empty()
+    st.session_state[f"per_{emp['id']}arqs"] = (arq, zp, len(meses))
+    st.success(f"{len(meses)} fechamento(s) mensal(is) e o Excel do período salvos em `{raiz}`.")
+    if criados_tot:
+        st.info("Categorias que não existiam no modelo da empresa viraram grupos novos: "
+                + ", ".join(f"**{g}**" for g in criados_tot) + ". Confira na aba **1. Classificação**.", icon="🆕")
 
 
 def gerar_comparativo_ms(emp, cfg, ano, mes, lancs, sel, n_ant, pasta):
