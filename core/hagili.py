@@ -6,7 +6,8 @@ Fechamento no layout do modelo "FECHAMENTO_HAGILI_09_2026 - POR PROJETO (ajustad
 - linhas = plano fixo do modelo (todas aparecem, zeradas se não houver movimento). Categoria do OMIE que não está
   no modelo entra no fim do grupo dela, com o próximo código livre;
 - projetos unificados como no modelo: OGGI SORVETES + SO GELO = OGGI / SÓ GELO; CONDOMINIO GR HORTOLANDIA =
-  BTG HORTOLÂNDIA; projetos "A DEFINIR CC", "(vazio)" e sem projeto = DESPESAS SEM CENTRO DE CUSTO;
+  BTG HORTOLÂNDIA; TB HORTOLANDIA (e demais projetos "TB ...") + TRANSPORTADORA BARBARENSE = TRANSPORTADORA
+  BARBARENSE LTDA; projetos "A DEFINIR CC", "(vazio)" e sem projeto = DESPESAS SEM CENTRO DE CUSTO;
 - combustível: no projeto "COMBUSTIVEL MAQUINÁRIO - A DEFINIR CC" vai para Combustível Maquinário, no resto para
   Combustível Veículos;
 - "Saída de Transferência" para o cartão de crédito = 090201-Pagamento de Cartão de Crédito; as demais
@@ -34,6 +35,7 @@ CNPJ_RAIZ = "48277409"
 TOTAL = "TOTAL HAGILI"
 SEM_CC = D.SEM_CC
 OGGI = "OGGI / SÓ GELO"
+BARBARENSE = "TRANSPORTADORA BARBARENSE LTDA"
 FORA_DRE = "FORA DA DRE - Transferência entre contas / aplicação"
 
 # Plano do modelo, na ordem do REPORT: grupo, nome, seção, relatório (PowerPoint), linhas [(código, nome)].
@@ -171,6 +173,8 @@ def coluna_projeto(nome):
         return OGGI
     if n == "condominio gr hortolandia":
         return "BTG HORTOLÂNDIA"
+    if "barbarense" in n or n == "tb" or n.startswith(("tb ", "tb-", "tb/")):  # TB HORTOLANDIA, TB LOG...
+        return BARBARENSE
     return str(nome).strip()
 
 
@@ -300,7 +304,8 @@ NOTAS = [
     "• Colunas = projetos do OMIE (mesma visão da tabela dinâmica Projeto x Categoria da base do mês).",
     "• Categorias com % no nome (ex.: \"Combustivel (98%); Tarifas Ticket (2%)\") foram divididas entre as contas "
     "pelos percentuais.",
-    "• OGGI SORVETES + SO GELO unificados em OGGI / SÓ GELO; CONDOMINIO GR HORTOLANDIA = BTG HORTOLÂNDIA.",
+    "• OGGI SORVETES + SO GELO unificados em OGGI / SÓ GELO; CONDOMINIO GR HORTOLANDIA = BTG HORTOLÂNDIA; "
+    "TB HORTOLANDIA + TRANSPORTADORA BARBARENSE unificados em TRANSPORTADORA BARBARENSE LTDA.",
     "• O que não tinha projeto marcado (inclusive \"A DEFINIR CC\" não rateados) ficou em DESPESAS SEM CENTRO DE "
     "CUSTO. Rateios por posto: aba 2. Rateios do sistema (listados na aba RATEIOS).",
     "• Combustível do projeto \"COMBUSTIVEL MAQUINÁRIO - A DEFINIR CC\" = Combustível Maquinário; demais "
