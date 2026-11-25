@@ -13,7 +13,8 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from core import analise, apresentacao, db, dre, excel, fluxo, modelos, ms_festas, periodo, psp, recebimento
+from core import (analise, apresentacao, db, dre, excel, fluxo, hagili, modelos, ms_festas, periodo, psp,
+                  recebimento)
 from core.importador import ler_exportacao_omie
 from core.omie import OmieCliente, OmieErro, baixar_mes, salvar_log
 from core.plano import GRUPOS_PADRAO, IGNORAR, SECOES
@@ -336,6 +337,7 @@ def todos_modelos():
     return {**{f"{n} (pronto)": m for n, m in modelos.MODELOS_PRONTOS.items()},
             ms_festas.NOME_MODELO: ms_festas.modelo(),
             psp.NOME_MODELO: psp.modelo(),
+            hagili.NOME_MODELO: hagili.modelo(),
             **{f"{n} (importado)": m for n, m in db.listar_modelos().items()}}
 
 
@@ -464,8 +466,19 @@ def tela_plano():
 # FECHAMENTO
 # =====================================================================
 def aplicar_modelos_especiais(emp):
-    """Modelos exclusivos (MS FESTAS, PSP HUB): aplicados uma vez por empresa. Devolve os avisos para a tela."""
+    """Modelos exclusivos (MS FESTAS, PSP HUB, HAGILI): aplicados uma vez por empresa. Devolve os avisos."""
     avisos = []
+    if hagili.eh_hagili(emp):
+        if hagili.precisa_aplicar_modelo(emp["config"]):
+            # plano do modelo FECHAMENTO HAGILI - POR PROJETO (aplicado uma vez; pode ser trocado depois)
+            hagili.aplicar_modelo(emp["config"], emp["mapa"])
+            db.salvar_config(emp["id"], emp["config"])
+            db.salvar_mapa(emp["id"], emp["mapa"])
+            avisos.append("Aplicado o modelo **FECHAMENTO HAGILI - POR PROJETO** a esta empresa: colunas por projeto "
+                          "(como a tabela dinâmica da base do mês) e o plano de contas da planilha modelo.")
+        elif hagili.atualizar_modelo(emp["config"], emp["mapa"]):
+            db.salvar_config(emp["id"], emp["config"])
+            db.salvar_mapa(emp["id"], emp["mapa"])
     if ms_festas.eh_ms_festas(emp):
         if ms_festas.precisa_aplicar_modelo(emp["config"]):
             # plano de contas do modelo FECHAMENTO MS FESTAS (aplicado uma vez; pode ser trocado depois)
@@ -498,6 +511,8 @@ def aplicar_modelos_especiais(emp):
 
 
 def tipo_modelo(emp):
+    if hagili.eh_hagili(emp) and hagili.em_uso(emp["config"]):
+        return "hagili"
     return "ms" if ms_festas.eh_ms_festas(emp) else "psp" if psp.eh_psp(emp) else ""
 
 
@@ -525,6 +540,9 @@ def preparar_mes(emp, ano, mes, lancs):
     elif modelo == "psp":
         base = psp.montar_base(lancs, cfg, mapa)
         d = psp.montar_dre(base, cfg)
+    elif modelo == "hagili":
+        base = hagili.montar_base(lancs, cfg, mapa)
+        d = hagili.montar_dre(base, cfg)
     else:
         base = dre.montar_base(lancs, cfg, mapa)
         d = dre.montar_dre(base, cfg)
@@ -1068,6 +1086,8 @@ def gerar_periodo(emp, sel, a0, m0, a1, m1, com_pptx):
                 ms_festas.gerar_excel(xlsx, emp, a, m, base, d, dados["saldos"], cfg)
             elif modelo == "psp":
                 gerar_excel_psp(emp, cfg, a, m, dados["lancs"], sel, xlsx)
+            elif modelo == "hagili":
+                hagili.gerar_excel(xlsx, emp, a, m, base, d, dados["saldos"], cfg)
             else:
                 excel.gerar_excel(xlsx, emp, a, m, base, d, dados["saldos"], cfg)
             if com_pptx:
@@ -1181,6 +1201,11 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes, lancs=None, sel=()):
         n_ant = st.number_input("Meses anteriores no Comparativo MS FESTAS", 0, 11, 1, key=k + "nant",
                                 help="0 = não gerar o comparativo. 1 = mês anterior x mês do report (como no modelo).")
 
+    eh_hagili = tipo_modelo(emp) == "hagili"
+    if eh_hagili:
+        st.caption("HAGILI: o Excel sai no modelo **FECHAMENTO HAGILI - POR PROJETO** — uma coluna por projeto "
+                   "(como a tabela dinâmica da base do mês), plano de contas da planilha modelo, RECEBIMENTOS "
+                   "(recebido x faturado), RATEIOS e BASE CLASSIFICADA.")
     eh_psp = psp.eh_psp(emp)
     if eh_psp:
         st.caption("PSP HUB: o Excel sai no modelo **REPORT - FECHAMENTO PSP** — linhas por fornecedor/cliente e "
@@ -1200,6 +1225,8 @@ def aba_arquivos(emp, cfg, base, d, saldos, ano, mes, lancs=None, sel=()):
                 ms_festas.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg, txts)
             elif eh_psp and lancs is not None:
                 gerar_excel_psp(emp, cfg, ano, mes, lancs, list(sel or []), xlsx)
+            elif eh_hagili:
+                hagili.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg)
             else:
                 excel.gerar_excel(xlsx, emp, ano, mes, base, d, saldos, cfg)
             apresentacao.gerar_pptx(pptx, emp, ano, mes, base, d, saldos, cfg, txts, graficos=eh_ms)

@@ -7,7 +7,7 @@ from datetime import date
 import openpyxl
 
 from . import dre as D
-from . import excel, ms_festas, psp
+from . import excel, hagili, ms_festas, psp
 
 MESES_ABREV = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
 MAX_MESES = 24
@@ -34,7 +34,7 @@ def saldos_periodo(saldos_por_mes):
 
 
 def montar(bases, cfg, modelo=""):
-    """bases: [(ano, mes, base do mês)] já classificadas. modelo: 'ms', 'psp' ou '' (padrão).
+    """bases: [(ano, mes, base do mês)] já classificadas. modelo: 'ms', 'psp', 'hagili' ou '' (padrão).
     Devolve (base de todos os meses com coluna = mês, DRE com uma coluna por mês, cfg usado)."""
     labels, todas = [], []
     for a, m, base in bases:
@@ -49,6 +49,9 @@ def montar(bases, cfg, modelo=""):
     elif modelo == "psp":
         psp.codificar(todas)
         d = psp.montar_dre(todas, c, colunas=labels)
+    elif modelo == "hagili":
+        hagili.codificar(todas)  # mesmos códigos para as linhas novas em todos os meses
+        d = hagili.montar_dre(todas, c, colunas=labels)
     else:
         D._codificar_contas(todas, None)
         d = D.montar_dre(todas, c)
