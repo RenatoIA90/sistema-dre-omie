@@ -1,13 +1,13 @@
 """Regras exclusivas da empresa HAGILI SERVIÇOS TERCEIRIZADOS LTDA.
 
 Fechamento no layout do modelo "FECHAMENTO_HAGILI_09_2026 - POR PROJETO (ajustado)":
-- colunas = PROJETOS (centros de custo do OMIE), em ordem alfabética, com DESPESAS SEM CENTRO DE CUSTO no fim e a
+- colunas = PROJETOS (centros de custo do OMIE), em ordem alfabética, com DESPESAS ADMINISTRATIVAS/INDIRETAS (sem centro de custo) no fim e a
   coluna TOTAL HAGILI; é a mesma visão da tabela dinâmica Projeto x Categoria feita sobre a base do mês;
 - linhas = plano fixo do modelo (todas aparecem, zeradas se não houver movimento). Categoria do OMIE que não está
   no modelo entra no fim do grupo dela, com o próximo código livre;
 - projetos unificados como no modelo: OGGI SORVETES + SO GELO = OGGI / SÓ GELO; CONDOMINIO GR HORTOLANDIA =
   BTG HORTOLÂNDIA; TB HORTOLANDIA (e demais projetos "TB ...") + TRANSPORTADORA BARBARENSE = TRANSPORTADORA
-  BARBARENSE LTDA; projetos "A DEFINIR CC", "(vazio)" e sem projeto = DESPESAS SEM CENTRO DE CUSTO;
+  BARBARENSE LTDA; projetos "A DEFINIR CC", "(vazio)" e sem projeto = DESPESAS ADMINISTRATIVAS/INDIRETAS;
 - combustível: no projeto "COMBUSTIVEL MAQUINÁRIO - A DEFINIR CC" vai para Combustível Maquinário, no resto para
   Combustível Veículos;
 - "Saída de Transferência" para o cartão de crédito = 090201-Pagamento de Cartão de Crédito; as demais
@@ -33,7 +33,7 @@ from .plano import FCL, IGNORAR, RESULTADO_LIQUIDO, RESULTADOS, SECOES, norm
 NOME_MODELO = "HAGILI (modelo FECHAMENTO POR PROJETO) (pronto)"
 CNPJ_RAIZ = "48277409"
 TOTAL = "TOTAL HAGILI"
-SEM_CC = D.SEM_CC
+SEM_CC = "DESPESAS ADMINISTRATIVAS/INDIRETAS"  # na HAGILI é o nome da coluna "sem centro de custo"
 OGGI = "OGGI / SÓ GELO"
 BARBARENSE = "TRANSPORTADORA BARBARENSE LTDA"
 FORA_DRE = "FORA DA DRE - Transferência entre contas / aplicação"
@@ -167,7 +167,8 @@ def em_uso(cfg):
 def coluna_projeto(nome):
     """Nome da coluna do REPORT para o projeto do OMIE (já com o apelido da tela de cadastro aplicado)."""
     n = norm(nome)
-    if not n or n in ("(vazio)", "vazio") or "a definir" in n or "sem centro de custo" in n:
+    if (not n or n in ("(vazio)", "vazio") or "a definir" in n or "sem centro de custo" in n
+            or n == norm(SEM_CC)):
         return SEM_CC
     if n.startswith("oggi") or "so gelo" in n:
         return OGGI
@@ -243,15 +244,23 @@ def codificar(base, mapa=None):
 
 
 def montar_base(lancs, cfg, mapa):
-    return D.montar_base(lancs, cfg, mapa, codificar=lambda base, _grupos: codificar(base, mapa))
+    base = D.montar_base(lancs, cfg, mapa, codificar=lambda base, _grupos: codificar(base, mapa))
+    for b in base:  # rateios: "de"/"para" salvos com o nome antigo da coluna ou do projeto -> coluna do REPORT
+        if b.get("tipo") != "Lançamento" and b.get("coluna"):
+            b["coluna"] = coluna_projeto(b["coluna"])
+    return base
 
 
 def montar_dre(base, cfg, colunas=None):
     """DRE no layout fixo do modelo: todos os grupos e linhas do modelo aparecem (zerados se não houver
-    movimento) e linhas/grupos novos entram no fim do grupo/seção. Colunas = projetos em ordem alfabética, SEM
-    CENTRO DE CUSTO no fim. Mesmo formato de core.dre.montar_dre."""
+    movimento) e linhas/grupos novos entram no fim do grupo/seção. Colunas = projetos em ordem alfabética,
+    DESPESAS ADMINISTRATIVAS/INDIRETAS (sem centro de custo) no fim. Mesmo formato de core.dre.montar_dre."""
     grupos_cfg = {g[0]: g for g in D.grupos_da_empresa(cfg)}
-    cols = list(colunas) if colunas is not None else D.colunas(base, cfg)
+    if colunas is not None:
+        cols = list(colunas)
+    else:
+        cols = D.colunas(base, cfg)
+        cols.sort(key=lambda c: c == SEM_CC)  # DESPESAS ADMINISTRATIVAS/INDIRETAS sempre no fim
     soma = defaultdict(lambda: defaultdict(float))
     conta_grupo = {}
     for b in base:
@@ -306,13 +315,13 @@ NOTAS = [
     "pelos percentuais.",
     "• OGGI SORVETES + SO GELO unificados em OGGI / SÓ GELO; CONDOMINIO GR HORTOLANDIA = BTG HORTOLÂNDIA; "
     "TB HORTOLANDIA + TRANSPORTADORA BARBARENSE unificados em TRANSPORTADORA BARBARENSE LTDA.",
-    "• O que não tinha projeto marcado (inclusive \"A DEFINIR CC\" não rateados) ficou em DESPESAS SEM CENTRO DE "
-    "CUSTO. Rateios por posto: aba 2. Rateios do sistema (listados na aba RATEIOS).",
+    "• O que não tinha projeto marcado (inclusive \"A DEFINIR CC\" não rateados) ficou em DESPESAS "
+    "ADMINISTRATIVAS/INDIRETAS. Rateios por posto: aba 2. Rateios do sistema (listados na aba RATEIOS).",
     "• Combustível do projeto \"COMBUSTIVEL MAQUINÁRIO - A DEFINIR CC\" = Combustível Maquinário; demais "
     "combustíveis = Combustível Veículos.",
     "• \"Saída de Transferência\" para cartão de crédito = 090201-Pagamento de Cartão de Crédito; aplicações e "
     "transferências entre contas ficam fora da DRE (entram só na conferência com o caixa).",
-    "• Coluna TOTAL = soma das colunas de projeto + SEM CENTRO DE CUSTO; as conferências acima comparam com a base "
+    "• Coluna TOTAL = soma das colunas de projeto + DESPESAS ADMINISTRATIVAS/INDIRETAS; as conferências acima comparam com a base "
     "e com o caixa.",
 ]
 

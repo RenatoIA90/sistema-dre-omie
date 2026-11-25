@@ -949,7 +949,8 @@ def aba_rateios(emp, cfg, d, ano, mes):
     st.caption("Rateio manual: move um valor de uma conta entre colunas (ex.: combustível que veio “sem centro de custo” "
                "para cada posto). Informe o valor positivo; o sinal segue a conta. Fica salvo para este mês.")
     contas = [l["descricao"] for l in d["linhas"] if l["tipo"] == "conta"]
-    cols = d["colunas"] + ([dre.SEM_CC] if dre.SEM_CC not in d["colunas"] else [])
+    sem_cc = hagili.SEM_CC if tipo_modelo(emp) == "hagili" else dre.SEM_CC
+    cols = d["colunas"] + ([sem_cc] if sem_cc not in d["colunas"] else [])
     chave = f"{ano}-{mes:02d}"
     atuais = emp["config"].get("rateios", {}).get(chave, [])
     df = pd.DataFrame(atuais or [], columns=["descricao", "conta", "de", "para", "valor"])
